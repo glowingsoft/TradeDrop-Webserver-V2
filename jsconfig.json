@@ -1,0 +1,58 @@
+{
+  "compilerOptions": {
+    "baseUrl": "./",
+    "paths": {
+      "@helperUtils/*": [
+        "backend/helperUtils/*"
+      ],
+      "@middlewares/*": [
+        "backend/middlewares/*"
+      ],
+      "@notificationsUtil": [
+        "backend/controllers/communicationController.js"
+      ],
+      "@redisCache": [
+        "backend/config/redis/redisCache.js"
+      ],
+      "@socketIo/*": [
+        "backend/config/sockets/*"
+      ],
+      "@UsersModel": [
+        "backend/models/UserModel.js"
+      ],
+      "@dbUtils/*": [
+        "backend/helperUtils/dbUtils/*"
+      ],
+      "@appEngagement/*": [
+        "backend/commonModules/appEngagement/*"
+      ],
+      "@EngagementEventsModel": [
+        "backend/commonModules/appEngagement/EngagementEvents.js"
+      ],
+      "@SupportRequestModel": [
+        "backend/models/SupportRequest.js"
+      ],
+      "@FaqModel": [
+        "backend/roles/admin/settings/models/Faq.js"
+      ],
+      "@NotificationsModel": [
+        "backend/models/Notifications.js"
+      ],
+      "@UsersOnboardingResponsesModel": [
+        "backend/roles/admin/onboardingAndFilters/usersOnboardingResponses/UsersOnboardingResponsesModel.js"
+      ],
+      "@BookingsModel": [
+        "backend/roles/user/bookings/BookingsModel.js"
+      ],
+      "@ServicesModel": [
+        "backend/roles/coach/services/ServicesModel.js"
+      ],
+      "@HelpCenterModel": [
+        "backend/roles/admin/helpCenter/HelpCenetr.js"
+      ]
+    }
+  },
+  "exclude": [
+    "node_modules"
+  ]
+}
