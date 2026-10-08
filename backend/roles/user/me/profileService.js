@@ -1,7 +1,7 @@
 const { randomBytes } = require("crypto");
 const repo = require("../auth/authRepository");
-const catalogRepo = require("../catalog/catalogRepository");
-const Drop = require("@backend/models/Drop");
+const catalogRepo = require("../catalog/mongoCatalogRepository");
+const { Drop } = require("@backend/models/Drop");
 const badgesService = require("../../admin/badges/badgesService");
 const { checkAndAwardBadges } = require("../../admin/badges/badgeEngine");
 
@@ -83,7 +83,7 @@ async function publicProfile(user) {
   let rating = null;
   let collaborators = [];
   try {
-    const tradeService = require("../trades/tradeService");
+    const tradeService = require("../trades/service");
     rating = await tradeService.ratingForUser(user._id);
     collaborators = await tradeService.collaboratorsForUser(user._id);
   } catch (_) {
@@ -322,7 +322,7 @@ async function completeOnboarding(userId, body = {}) {
     detail: detail ? String(detail).trim() : "",
     usageRights: usageRights ? String(usageRights).trim() : "",
     media: Array.isArray(media) ? media.map(String) : [],
-    status: "active",
+    status: "open",
     date: date ? new Date(date) : new Date(),
   });
 

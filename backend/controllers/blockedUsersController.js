@@ -29,8 +29,10 @@ const blockUser = async (req, res) => {
       throw err;
     }
 
-    const [user1, user2] = Connection.normalizePair(blockedBy, userId);
-    await Connection.findOneAndUpdate({ user1, user2 }, { $set: { status: "blocked" } });
+    await Connection.findOneAndUpdate(
+      { pairKey: Connection.pairKeyFor(blockedBy, userId) },
+      { $set: { status: "blocked" } },
+    );
     await MessageRequest.updateMany(
       { sender: userId, receiver: blockedBy, status: "pending" },
       { $set: { status: "blocked", respondedAt: new Date() } },
@@ -55,8 +57,10 @@ const unblockUser = async (req, res) => {
 
     const reverseBlock = await BlockedUser.findOne({ blockedBy: userId, blockedUser: blockedBy }).lean();
     if (!reverseBlock) {
-      const [user1, user2] = Connection.normalizePair(blockedBy, userId);
-      await Connection.findOneAndUpdate({ user1, user2, status: "blocked" }, { $set: { status: "active" } });
+      await Connection.findOneAndUpdate(
+        { pairKey: Connection.pairKeyFor(blockedBy, userId), status: "blocked" },
+        { $set: { status: "active" } },
+      );
     }
 
     return sendResponse({ res, statusCode: 200, translationKey: "user_unblocked" });

@@ -305,6 +305,9 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    stats: {
+      disputesLost: { type: Number, default: 0 },
+    },
     deletedAt: {
       type: Date,
       default: null,

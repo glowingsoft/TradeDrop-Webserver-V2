@@ -1,28 +1,32 @@
-const mongoose = require("mongoose");
+﻿const mongoose = require("mongoose");
+
+const { ObjectId } = mongoose.Schema.Types;
 
 const connectionSchema = new mongoose.Schema(
   {
-    // user1 is always the lexicographically smaller ObjectId so a given pair maps to exactly one document
-    user1: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    user2: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    status: { type: String, enum: ["active", "blocked", "removed"], default: "active" },
-    source: {
-      type: { type: String, enum: ["tapIn"], default: "tapIn" },
-      tapInId: { type: mongoose.Schema.Types.ObjectId, ref: "TapIn", default: null },
-    },
+    // Sorted "idA_idB" so an unordered pair maps to exactly one document
+    pairKey: { type: String, required: true, unique: true },
+    userA: { type: ObjectId, ref: "User", required: true },
+    userB: { type: ObjectId, ref: "User", required: true },
+    source: { type: String, default: "trade" },
+    completedCount: { type: Number, default: 0 },
+    status: { type: String, enum: ["active", "blocked"], default: "active" },
   },
   { timestamps: true },
 );
 
-// One connection document per unordered user pair — prevents duplicate connections
-connectionSchema.index({ user1: 1, user2: 1 }, { unique: true });
-connectionSchema.index({ user1: 1, status: 1 });
-connectionSchema.index({ user2: 1, status: 1 });
+connectionSchema.index({ userA: 1, status: 1 });
+connectionSchema.index({ userB: 1, status: 1 });
 
-connectionSchema.statics.normalizePair = function normalizePair(userA, userB) {
-  const a = String(userA);
-  const b = String(userB);
+// Sorted [userA, userB] so the same pair always yields the same key
+connectionSchema.statics.normalizePair = function normalizePair(x, y) {
+  const a = String(x);
+  const b = String(y);
   return a < b ? [a, b] : [b, a];
+};
+
+connectionSchema.statics.pairKeyFor = function pairKeyFor(x, y) {
+  return this.normalizePair(x, y).join("_");
 };
 
 module.exports = mongoose.models.Connection || mongoose.model("Connection", connectionSchema);

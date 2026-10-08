@@ -24,7 +24,7 @@ module.exports = {
   ],
   tags: [
     { name: "Auth", description: "Register, login, OTP, password reset" },
-    { name: "Catalog", description: "Categories and CMS pages" },
+    { name: "Catalog", description: "Categories, timing chips and app settings" },
     { name: "Profile", description: "Me, portfolio, onboarding, privacy" },
     { name: "Drops", description: "Drop CRUD and lifecycle" },
     { name: "Tap-ins", description: "Tap-in apply, accept, decline, withdraw" },
@@ -250,21 +250,6 @@ module.exports = {
         tags: ["Catalog"],
         summary: "List categories (API-010)",
         responses: { 200: { description: "Active launch categories" } },
-      },
-    },
-    "/cms/{slug}": {
-      get: {
-        tags: ["Catalog"],
-        summary: "CMS page by slug (API-011)",
-        parameters: [
-          {
-            name: "slug",
-            in: "path",
-            required: true,
-            schema: { type: "string", enum: ["terms", "privacy", "about", "faq"] },
-          },
-        ],
-        responses: { 200: { description: "CMS page" }, 404: { description: "Unknown slug" } },
       },
     },
     "/drops": {

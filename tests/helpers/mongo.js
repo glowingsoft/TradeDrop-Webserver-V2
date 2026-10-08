@@ -41,7 +41,6 @@ async function clearTradeDropCollections() {
   const names = [
     "users",
     "categories",
-    "cmspages",
     "areas",
     "appsettings",
     "drops",

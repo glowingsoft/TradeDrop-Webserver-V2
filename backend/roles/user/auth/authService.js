@@ -31,8 +31,7 @@ function shouldExposeDebugOtp() {
   return (
     process.env.DEBUG_OTP === "true" ||
     process.env.NODE_ENV === "dev" ||
-    process.env.NODE_ENV === "test" ||
-    process.env.AUTH_REPOSITORY === "memory"
+    process.env.NODE_ENV === "test"
   );
 }
 

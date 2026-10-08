@@ -1,6 +1,6 @@
 const { User } = require("@UsersModel");
 const authRepo = require("../auth/authRepository");
-const catalogRepo = require("../catalog/catalogRepository");
+const catalogRepo = require("../catalog/mongoCatalogRepository");
 const { DEFAULT_RADAR_RADIUS_KM, CHIP_GROUPS } = require("./radarConstants");
 const { default: mongoose } = require("mongoose");
 const { parsePaginationParams, generateMeta } = require("@helperUtils/responseUtil");

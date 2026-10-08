@@ -12,12 +12,13 @@ function handleError(res, error) {
 
 const getCategories = async (req, res) => {
   try {
-    const data = await catalogService.listCategories();
+    const { data, meta } = await catalogService.getCategories(req, { status: "active" });
     return sendResponse({
       res,
       statusCode: 200,
       translationKey: "categories_fetched",
       data,
+      meta,
     });
   } catch (error) {
     return handleError(res, error);
@@ -28,20 +29,6 @@ const getTimingChips = async (req, res) => {
   try {
     const data = await catalogService.listTimingChips({ filter: { status: "active" } });
     return sendResponse({ res, statusCode: 200, translationKey: "timing_chips_fetched", data });
-  } catch (error) {
-    return handleError(res, error);
-  }
-};
-
-const getCmsBySlug = async (req, res) => {
-  try {
-    const data = await catalogService.getCmsPage(req.params.slug);
-    return sendResponse({
-      res,
-      statusCode: 200,
-      translationKey: "cms_fetched",
-      data,
-    });
   } catch (error) {
     return handleError(res, error);
   }
@@ -64,6 +51,5 @@ async function getAppSettings(req, res, next) {
 module.exports = {
   getCategories,
   getTimingChips,
-  getCmsBySlug,
   getAppSettings,
 };

@@ -13,7 +13,6 @@ router.use("/contact-us", require("./contactUsRoutes"));
 router.use("/connections", require("./connectionRoutes"));
 router.use("/message-requests", require("./messageRequestRoutes"));
 router.use("/blocked-users", require("./blockedUserRoutes"));
-router.use("/disputes", require("./disputeRoutes"));
 router.use("/languages", require("./languageRoutes"));
 router.use("/util", require("./dbRoutes"));
 router.use("/engagement", require("../commonModules/appEngagement/engagementEventsRoutes"));

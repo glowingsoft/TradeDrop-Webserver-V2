@@ -1,6 +1,5 @@
-const repo = require("./catalogRepository");
-const CmsPageRepo = require("./cmsPageRepository");
-const timingChipRepo = require("./timingChipRepository");
+const repo = require("./mongoCatalogRepository");
+const timingChipRepo = require("./mongoTimingChipRepository");
 const Conversation = require("../../../commonModules/chatModule/models/Conversation");
 
 function AppError(translationKey, statusCode = 400) {
@@ -16,21 +15,6 @@ async function listCategories() {
 
 async function getCategories(req, filter = {}) {
   return repo.getCategories({ req, filter });
-}
-
-async function getCmsPage(slug) {
-  const normalized = String(slug || "")
-    .toLowerCase()
-    .trim();
-  if (!normalized) {
-    throw AppError("cms_slug_required", 400);
-  }
-
-  const page = await repo.findCmsBySlug(normalized);
-  if (!page) {
-    throw AppError("cms_not_found", 404);
-  }
-  return page;
 }
 
 // Admin: Create or update category with automatic conversation group
@@ -160,41 +144,6 @@ async function updateCategoryStatus(categoryId, status) {
   return repo.toPublic(updated);
 }
 
-async function addOrUpdateCmsPage(data = {}) {
-  const { slug, title, bodyMarkdown } = data;
-
-  if (!slug || !String(slug).trim()) {
-    throw AppError("cms_slug_required", 400);
-  }
-  if (!title || !String(title).trim()) {
-    throw AppError("cms_title_required", 400);
-  }
-
-  const normalizedSlug = String(slug).toLowerCase().trim();
-
-  let page = await CmsPageRepo.findBySlug(normalizedSlug);
-  if (page) {
-    // Update existing
-    page = await CmsPageRepo.update(normalizedSlug, {
-      title: String(title).trim(),
-      bodyMarkdown: bodyMarkdown || "",
-    });
-  } else {
-    // Create new
-    page = await CmsPageRepo.create({
-      slug: normalizedSlug,
-      title: String(title).trim(),
-      bodyMarkdown: bodyMarkdown || "",
-    });
-  }
-
-  return CmsPageRepo.toPublic(page);
-}
-
-async function listAllCmsPages() {
-  return CmsPageRepo.listAll();
-}
-
 async function listTimingChips({ req = {} }) {
   return timingChipRepo.listAll({ req });
 }
@@ -276,12 +225,9 @@ async function updateAppSettings(data = {}) {
 module.exports = {
   listCategories,
   getCategories,
-  getCmsPage,
   createOrUpdateCategory,
   listAllCategories,
   updateCategory,
-  addOrUpdateCmsPage,
-  listAllCmsPages,
   listTimingChips,
   createTimingChip,
   updateTimingChip,

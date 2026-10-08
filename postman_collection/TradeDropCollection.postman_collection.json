@@ -513,87 +513,6 @@
               "response": []
             },
             {
-              "name": "CMS Terms",
-              "request": {
-                "auth": {
-                  "type": "noauth"
-                },
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{url}}cms/terms",
-                  "host": [
-                    "{{url}}cms"
-                  ],
-                  "path": [
-                    "terms"
-                  ]
-                },
-                "description": "API-011 — slug: terms | privacy | about | faq"
-              },
-              "response": []
-            },
-            {
-              "name": "CMS Privacy",
-              "request": {
-                "auth": {
-                  "type": "noauth"
-                },
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{url}}cms/privacy",
-                  "host": [
-                    "{{url}}cms"
-                  ],
-                  "path": [
-                    "privacy"
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "CMS About",
-              "request": {
-                "auth": {
-                  "type": "noauth"
-                },
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{url}}cms/about",
-                  "host": [
-                    "{{url}}cms"
-                  ],
-                  "path": [
-                    "about"
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "CMS FAQ",
-              "request": {
-                "auth": {
-                  "type": "noauth"
-                },
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{url}}cms/faq",
-                  "host": [
-                    "{{url}}cms"
-                  ],
-                  "path": [
-                    "faq"
-                  ]
-                }
-              },
-              "response": []
-            },
-            {
               "name": "App Settings",
               "request": {
                 "auth": {
@@ -619,9 +538,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}app-settings",
+                  "raw": "{{url}}timing-chips",
                   "host": [
-                    "{{url}}app-settings"
+                    "{{url}}timing-chips"
                   ]
                 }
               },
@@ -913,17 +832,23 @@
             {
               "name": "List Drops",
               "request": {
-                "auth": {
-                  "type": "noauth"
-                },
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}drops?cursor=1&limit=10",
+                  "raw": "{{url}}drops?page=1&limit=10&category=&area=&timingChip=&q=",
                   "host": [
                     "{{url}}drops"
                   ],
+                  "path": [],
                   "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
                     {
                       "key": "category",
                       "value": "",
@@ -935,21 +860,21 @@
                       "disabled": true
                     },
                     {
-                      "key": "timing",
+                      "key": "timingChip",
                       "value": "",
                       "disabled": true
                     },
                     {
-                      "key": "cursor",
-                      "value": "1"
-                    },
-                    {
-                      "key": "limit",
-                      "value": "10"
+                      "key": "q",
+                      "value": "",
+                      "disabled": true
                     }
                   ]
                 },
-                "description": "API-012 — cursor pagination; public active drops"
+                "description": "Public feed: visibility=public, status=open, not deleted, not expired (date null or >= now). Auth optional.",
+                "auth": {
+                  "type": "noauth"
+                }
               },
               "response": []
             },
@@ -969,7 +894,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}drops/all?page=1&limit=10&notme=true&type=offer",
+                  "raw": "{{url}}drops/all?page=1&limit=10&category=&area=&timingChip=&notme=true&tag=near_me&ownerId=",
                   "host": [
                     "{{url}}drops"
                   ],
@@ -977,6 +902,14 @@
                     "all"
                   ],
                   "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
                     {
                       "key": "category",
                       "value": "",
@@ -988,36 +921,28 @@
                       "disabled": true
                     },
                     {
-                      "key": "timing",
+                      "key": "timingChip",
                       "value": "",
                       "disabled": true
                     },
                     {
-                      "key": "page",
-                      "value": "1"
-                    },
-                    {
-                      "key": "limit",
-                      "value": "10"
-                    },
-                    {
                       "key": "notme",
-                      "value": "true"
+                      "value": "true",
+                      "disabled": true
                     },
                     {
                       "key": "tag",
                       "value": "near_me",
-                      "description": "today,near_me",
                       "disabled": true
                     },
                     {
-                      "key": "type",
-                      "value": "offer",
-                      "description": "offer,need"
+                      "key": "ownerId",
+                      "value": "",
+                      "disabled": true
                     }
                   ]
                 },
-                "description": "API-012 — cursor pagination; public active drops"
+                "description": "Public feed with filters. The old type/status filters were removed."
               },
               "response": []
             },
@@ -1038,7 +963,7 @@
                     "{{dropId}}"
                   ]
                 },
-                "description": "API-013"
+                "description": "Public drops are open to everyone. Direct drops return 404 unless caller is owner or target."
               },
               "response": []
             },
@@ -1050,7 +975,8 @@
                   "script": {
                     "type": "text/javascript",
                     "exec": [
-                      "pm.test(\"Status code is success\", function () {\n    pm.expect(pm.response.code).to.be.oneOf([200, 201]);\n});\n\ntry {\n    var jsonData = pm.response.json();\n    if (jsonData && jsonData.data && jsonData.data.token) {\n        pm.environment.set(\"token\", jsonData.data.token);\n        pm.collectionVariables.set(\"token\", jsonData.data.token);\n    }\n    if (jsonData && jsonData.data && jsonData.data.debugOtp) {\n        pm.environment.set(\"otp\", String(jsonData.data.debugOtp));\n        pm.collectionVariables.set(\"otp\", String(jsonData.data.debugOtp));\n    }\n    if (jsonData && jsonData.data && jsonData.data._id) {\n        pm.environment.set(\"dropId\", jsonData.data._id);\n        pm.collectionVariables.set(\"dropId\", jsonData.data._id);\n    }\n    if (jsonData && jsonData.data && jsonData.data.tapIn && jsonData.data.tapIn._id) {\n        pm.environment.set(\"tapInId\", jsonData.data.tapIn._id);\n    }\n    if (jsonData && jsonData.data && jsonData.data.trade && jsonData.data.trade._id) {\n        pm.environment.set(\"tradeId\", jsonData.data.trade._id);\n    }\n    if (jsonData && jsonData.data && jsonData.data.tradeId) {\n        pm.environment.set(\"tradeId\", jsonData.data.tradeId);\n    }\n} catch (e) {\n    console.log(\"parse error\", e);\n}"
+                      "pm.test('Status code is success', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                      "try { var j = pm.response.json(); var v = j.data && j.data._id; if (v) { pm.environment.set('dropId', v); pm.collectionVariables.set('dropId', v); } } catch (e) { console.log(e); }"
                     ]
                   }
                 }
@@ -1060,7 +986,7 @@
                 "header": [],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n    \"type\": \"offer\", //offer,need,\n    \"recipientId\": \"6a9684735e72156fd9d06dcc\",\n    \"needText\": \"Need a model for golden hour\",\n    \"offerText\": \"Digitals + edited selects\",\n    \"needCategoryId\": \"{{categoryId}}\",\n    \"offerCategoryId\": \"6a96781df22a556c1f3aae17\",\n    \"timingChip\": \"this_week\",\n    \"areaLabel\": \"Soho\",\n    \"lat\": 40.7234567,\n    \"lng\": -74.0021234,\n    \"detail\": \"Natural light preferred\",\n    \"usageRights\": \"personal_portfolio\",\n    \"media\": []\n}",
+                  "raw": "{\n    \"needText\": \"Need a model for golden hour\",\n    \"offerText\": \"Digitals + edited selects\",\n    \"needCategoryId\": \"{{categoryId}}\",\n    \"offerCategoryId\": \"{{categoryId}}\",\n    \"timingChip\": \"this_week\",\n    \"areaLabel\": \"Soho\",\n    \"lat\": 40.7234567,\n    \"lng\": -74.0021234,\n    \"detail\": \"Natural light preferred\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1073,7 +999,7 @@
                     "{{url}}drops"
                   ]
                 },
-                "description": "API-030 — requires verified + onboarded"
+                "description": "Creates a public drop (kind=drop, visibility=public). Requires verified + onboarded."
               },
               "response": []
             },
@@ -1105,63 +1031,6 @@
               "response": []
             },
             {
-              "name": "Pause Drop",
-              "request": {
-                "method": "POST",
-                "header": [],
-                "url": {
-                  "raw": "{{url}}drops/{{dropId}}/pause",
-                  "host": [
-                    "{{url}}drops"
-                  ],
-                  "path": [
-                    "{{dropId}}",
-                    "pause"
-                  ]
-                },
-                "description": "API-032"
-              },
-              "response": []
-            },
-            {
-              "name": "Resume Drop",
-              "request": {
-                "method": "POST",
-                "header": [],
-                "url": {
-                  "raw": "{{url}}drops/{{dropId}}/resume",
-                  "host": [
-                    "{{url}}drops"
-                  ],
-                  "path": [
-                    "{{dropId}}",
-                    "resume"
-                  ]
-                },
-                "description": "API-033"
-              },
-              "response": []
-            },
-            {
-              "name": "Complete Drop",
-              "request": {
-                "method": "POST",
-                "header": [],
-                "url": {
-                  "raw": "{{url}}drops/{{dropId}}/complete",
-                  "host": [
-                    "{{url}}drops"
-                  ],
-                  "path": [
-                    "{{dropId}}",
-                    "complete"
-                  ]
-                },
-                "description": "API-034"
-              },
-              "response": []
-            },
-            {
               "name": "Delete Drop",
               "request": {
                 "method": "DELETE",
@@ -1185,7 +1054,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}me/drops?cursor=&limit=20",
+                  "raw": "{{url}}me/drops?page=1&limit=20",
                   "host": [
                     "{{url}}me"
                   ],
@@ -1194,16 +1063,15 @@
                   ],
                   "query": [
                     {
-                      "key": "cursor",
-                      "value": ""
+                      "key": "page",
+                      "value": "1"
                     },
                     {
                       "key": "limit",
                       "value": "20"
                     }
                   ]
-                },
-                "description": "API-036 — includes paused"
+                }
               },
               "response": []
             }
@@ -1219,19 +1087,9 @@
                   "listen": "test",
                   "script": {
                     "type": "text/javascript",
-                    "packages": {},
-                    "requests": {},
                     "exec": [
-                      "pm.test(\"Status code is success\", function () {",
-                      "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
-                      "});",
-                      "try {",
-                      "    var jsonData = pm.response.json();",
-                      "    if (jsonData && jsonData.data && jsonData.data._id) {",
-                      "        pm.environment.set(\"tapInId\", jsonData.data._id);",
-                      "        pm.collectionVariables.set(\"tapInId\", jsonData.data._id);",
-                      "    }",
-                      "} catch (e) { console.log(e); }"
+                      "pm.test('Status code is success', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                      "try { var j = pm.response.json(); var v = j.data && j.data._id; if (v) { pm.environment.set('tapInId', v); pm.collectionVariables.set('tapInId', v); } } catch (e) { console.log(e); }"
                     ]
                   }
                 }
@@ -1241,7 +1099,7 @@
                 "header": [],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n    \"yourOffer\": \"I can shoot Saturday\",\n    \"availability\": \"weekend\",\n    \"instagram\": \"@maya\",\n    \"link\": \"https://example.com/portfolio\",\n    \"note\": \"Happy to travel within Soho\",\n    \"media\": []\n}",
+                  "raw": "{\n    \"yourOffer\": \"I can shoot Saturday\",\n    \"availability\": \"weekend\",\n    \"link\": \"https://example.com/portfolio\",\n    \"note\": \"Happy to travel within Soho\",\n    \"media\": []\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1258,17 +1116,93 @@
                     "tap-ins"
                   ]
                 },
-                "description": "API-040"
+                "description": "requesterId = caller, responderId = drop owner."
               },
               "response": []
             },
             {
-              "name": "My Tap-ins",
+              "name": "Send Proposal",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status code is success', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                      "try { var j = pm.response.json(); var v = j.data && (j.data.tapIn ? j.data.tapIn._id : j.data._id); if (v) { pm.environment.set('tapInId', v); pm.collectionVariables.set('tapInId', v); } } catch (e) { console.log(e); }",
+                      "try { var j = pm.response.json(); var v = j.data && (j.data.drop ? j.data.drop._id : j.data.dropId); if (v) { pm.environment.set('dropId', v); pm.collectionVariables.set('dropId', v); } } catch (e) { console.log(e); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}proposals",
+                  "host": [
+                    "{{url}}proposals"
+                  ],
+                  "path": []
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"targetUserId\": \"{{targetUserId}}\",\n    \"needText\": \"Need a model for golden hour\",\n    \"offerText\": \"Digitals + edited selects\",\n    \"needCategoryId\": \"{{categoryId}}\",\n    \"offerCategoryId\": \"{{categoryId}}\",\n    \"timingChip\": \"this_week\",\n    \"areaLabel\": \"Soho\",\n    \"detail\": \"Natural light preferred\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "System creates a private drop (visibility=direct) + tap-in in one transaction. yourOffer = offerText, availability = 'As discussed'."
+              },
+              "response": []
+            },
+            {
+              "name": "Send Collaboration",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status code is success', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                      "try { var j = pm.response.json(); var v = j.data && (j.data.tapIn ? j.data.tapIn._id : j.data._id); if (v) { pm.environment.set('tapInId', v); pm.collectionVariables.set('tapInId', v); } } catch (e) { console.log(e); }",
+                      "try { var j = pm.response.json(); var v = j.data && (j.data.drop ? j.data.drop._id : j.data.dropId); if (v) { pm.environment.set('dropId', v); pm.collectionVariables.set('dropId', v); } } catch (e) { console.log(e); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}collaborations",
+                  "host": [
+                    "{{url}}collaborations"
+                  ],
+                  "path": []
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"targetUserId\": \"{{targetUserId}}\",\n    \"needText\": \"Need a model for golden hour\",\n    \"offerText\": \"Digitals + edited selects\",\n    \"needCategoryId\": \"{{categoryId}}\",\n    \"offerCategoryId\": \"{{categoryId}}\",\n    \"timingChip\": \"this_week\",\n    \"areaLabel\": \"Soho\",\n    \"detail\": \"Natural light preferred\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Same as proposal but requires an active Connection with targetUserId."
+              },
+              "response": []
+            },
+            {
+              "name": "My Tap-ins (received)",
               "request": {
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}me/tap-ins?direction=outgoing&cursor=&limit=20",
+                  "raw": "{{url}}me/tap-ins?direction=received&page=1&limit=20",
                   "host": [
                     "{{url}}me"
                   ],
@@ -1278,11 +1212,11 @@
                   "query": [
                     {
                       "key": "direction",
-                      "value": "outgoing"
+                      "value": "received"
                     },
                     {
-                      "key": "cursor",
-                      "value": ""
+                      "key": "page",
+                      "value": "1"
                     },
                     {
                       "key": "limit",
@@ -1290,20 +1224,53 @@
                     }
                   ]
                 },
-                "description": "API-041 — direction: incoming | outgoing"
+                "description": "TapIn.find({responderId: me})"
               },
               "response": []
             },
             {
-              "name": "List Tap-ins",
+              "name": "My Tap-ins (sent)",
               "request": {
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}tap-ins?page=1&limit=10&ownerId=6a9684735e72156fd9d06dcc",
+                  "raw": "{{url}}me/tap-ins?direction=sent&page=1&limit=20",
+                  "host": [
+                    "{{url}}me"
+                  ],
+                  "path": [
+                    "tap-ins"
+                  ],
+                  "query": [
+                    {
+                      "key": "direction",
+                      "value": "sent"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "TapIn.find({requesterId: me})"
+              },
+              "response": []
+            },
+            {
+              "name": "List Tap-ins (admin)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}tap-ins?page=1&limit=10&status=&dropId=&requesterId=&responderId=",
                   "host": [
                     "{{url}}tap-ins"
                   ],
+                  "path": [],
                   "query": [
                     {
                       "key": "page",
@@ -1314,12 +1281,38 @@
                       "value": "10"
                     },
                     {
-                      "key": "ownerId",
-                      "value": "6a9684735e72156fd9d06dcc"
+                      "key": "status",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "dropId",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "requesterId",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "responderId",
+                      "value": "",
+                      "disabled": true
                     }
                   ]
                 },
-                "description": "API-041 — direction: incoming | outgoing"
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{tokenAdmin}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "description": "Admin only."
               },
               "response": []
             },
@@ -1330,24 +1323,9 @@
                   "listen": "test",
                   "script": {
                     "type": "text/javascript",
-                    "packages": {},
-                    "requests": {},
                     "exec": [
-                      "pm.test(\"Status code is success\", function () {",
-                      "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
-                      "});",
-                      "try {",
-                      "    var jsonData = pm.response.json();",
-                      "    var trade = jsonData && jsonData.data && (jsonData.data.trade || jsonData.data);",
-                      "    if (trade && trade._id) {",
-                      "        pm.environment.set(\"tradeId\", trade._id);",
-                      "        pm.collectionVariables.set(\"tradeId\", trade._id);",
-                      "    }",
-                      "    if (jsonData && jsonData.data && jsonData.data.tradeId) {",
-                      "        pm.environment.set(\"tradeId\", jsonData.data.tradeId);",
-                      "        pm.collectionVariables.set(\"tradeId\", jsonData.data.tradeId);",
-                      "    }",
-                      "} catch (e) { console.log(e); }"
+                      "pm.test('Status code is success', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                      "try { var j = pm.response.json(); var v = j.data && (j.data.tradeId || (j.data.trade && j.data.trade._id)); if (v) { pm.environment.set('tradeId', v); pm.collectionVariables.set('tradeId', v); } } catch (e) { console.log(e); }"
                     ]
                   }
                 }
@@ -1365,143 +1343,7 @@
                     "accept"
                   ]
                 },
-                "description": "API-042 — creates trade + thread"
-              },
-              "response": []
-            },
-            {
-              "name": "mark as complete",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "pm.test(\"Status code is success\", function () {\n    pm.expect(pm.response.code).to.be.oneOf([200, 201]);\n});\ntry {\n    var jsonData = pm.response.json();\n    var trade = jsonData && jsonData.data && (jsonData.data.trade || jsonData.data);\n    if (trade && trade._id) {\n        pm.environment.set(\"tradeId\", trade._id);\n        pm.collectionVariables.set(\"tradeId\", trade._id);\n    }\n    if (jsonData && jsonData.data && jsonData.data.tradeId) {\n        pm.environment.set(\"tradeId\", jsonData.data.tradeId);\n        pm.collectionVariables.set(\"tradeId\", jsonData.data.tradeId);\n    }\n} catch (e) { console.log(e); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\r\n    \"completionImgUrl\":\"noimg.png\"\r\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                },
-                "url": {
-                  "raw": "{{url}}tap-ins/{{tapInId}}/jobs/complete",
-                  "host": [
-                    "{{url}}tap-ins"
-                  ],
-                  "path": [
-                    "{{tapInId}}",
-                    "jobs",
-                    "complete"
-                  ]
-                },
-                "description": "API-042 — creates trade + thread"
-              },
-              "response": []
-            },
-            {
-              "name": "confirm complete",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is success\", function () {",
-                      "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
-                      "});",
-                      "try {",
-                      "    var jsonData = pm.response.json();",
-                      "    var trade = jsonData && jsonData.data && (jsonData.data.trade || jsonData.data);",
-                      "    if (trade && trade._id) {",
-                      "        pm.environment.set(\"tradeId\", trade._id);",
-                      "        pm.collectionVariables.set(\"tradeId\", trade._id);",
-                      "    }",
-                      "    if (jsonData && jsonData.data && jsonData.data.tradeId) {",
-                      "        pm.environment.set(\"tradeId\", jsonData.data.tradeId);",
-                      "        pm.collectionVariables.set(\"tradeId\", jsonData.data.tradeId);",
-                      "    }",
-                      "} catch (e) { console.log(e); }"
-                    ],
-                    "type": "text/javascript",
-                    "packages": {},
-                    "requests": {}
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\r\n    \"completionImgUrl\":\"noimg.png\"\r\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                },
-                "url": {
-                  "raw": "{{url}}tap-ins/{{tapInId}}/jobs/complete/confirm",
-                  "host": [
-                    "{{url}}tap-ins"
-                  ],
-                  "path": [
-                    "{{tapInId}}",
-                    "jobs",
-                    "complete",
-                    "confirm"
-                  ]
-                },
-                "description": "API-042 — creates trade + thread"
-              },
-              "response": []
-            },
-            {
-              "name": "review on completion",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "pm.test(\"Status code is success\", function () {\n    pm.expect(pm.response.code).to.be.oneOf([200, 201]);\n});\ntry {\n    var jsonData = pm.response.json();\n    var trade = jsonData && jsonData.data && (jsonData.data.trade || jsonData.data);\n    if (trade && trade._id) {\n        pm.environment.set(\"tradeId\", trade._id);\n        pm.collectionVariables.set(\"tradeId\", trade._id);\n    }\n    if (jsonData && jsonData.data && jsonData.data.tradeId) {\n        pm.environment.set(\"tradeId\", jsonData.data.tradeId);\n        pm.collectionVariables.set(\"tradeId\", jsonData.data.tradeId);\n    }\n} catch (e) { console.log(e); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\r\n    \"stars\": 4,\r\n    \"body\": \"Really good work\"\r\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                },
-                "url": {
-                  "raw": "{{url}}tap-ins/{{tapInId}}/review",
-                  "host": [
-                    "{{url}}tap-ins"
-                  ],
-                  "path": [
-                    "{{tapInId}}",
-                    "review"
-                  ]
-                },
-                "description": "API-042 — creates trade + thread"
+                "description": "Responder only. pending -> accepted, declines other pending tap-ins, creates Trade, closes drop."
               },
               "response": []
             },
@@ -1520,7 +1362,7 @@
                     "decline"
                   ]
                 },
-                "description": "API-043"
+                "description": "Responder only. A direct drop is also soft-deleted."
               },
               "response": []
             },
@@ -1539,7 +1381,7 @@
                     "withdraw"
                   ]
                 },
-                "description": "API-044"
+                "description": "Requester only, pending only. Sets deletedAt."
               },
               "response": []
             }
@@ -1549,61 +1391,94 @@
           "name": "Trades",
           "item": [
             {
-              "name": "Propose Complete",
+              "name": "My Trades",
               "request": {
-                "method": "POST",
+                "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}trades/{{tradeId}}/complete",
+                  "raw": "{{url}}me/trades?page=1&limit=20",
                   "host": [
-                    "{{url}}trades"
+                    "{{url}}me"
                   ],
                   "path": [
-                    "{{tradeId}}",
-                    "complete"
+                    "trades"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
                   ]
-                },
-                "description": "API-054"
+                }
               },
               "response": []
             },
             {
-              "name": "Confirm Complete",
+              "name": "Get Trade",
               "request": {
-                "method": "POST",
+                "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}trades/{{tradeId}}/complete/confirm",
+                  "raw": "{{url}}trades/{{tradeId}}",
                   "host": [
                     "{{url}}trades"
                   ],
                   "path": [
-                    "{{tradeId}}",
-                    "complete",
-                    "confirm"
+                    "{{tradeId}}"
                   ]
                 },
-                "description": "API-055"
+                "description": "Parties or admin only (403 otherwise)."
               },
               "response": []
             },
             {
-              "name": "Reject Complete",
+              "name": "Mark Done",
               "request": {
                 "method": "POST",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}trades/{{tradeId}}/complete/reject",
+                  "raw": "{{url}}trades/{{tradeId}}/done",
                   "host": [
                     "{{url}}trades"
                   ],
                   "path": [
                     "{{tradeId}}",
-                    "complete",
-                    "reject"
+                    "done"
                   ]
                 },
-                "description": "API-056"
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"proof\": \"\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Sets caller's own doneAt. When both sides are done the trade completes and the Connection is upserted. 409 if a dispute is open."
+              },
+              "response": []
+            },
+            {
+              "name": "Cancel Trade",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}trades/{{tradeId}}/cancel",
+                  "host": [
+                    "{{url}}trades"
+                  ],
+                  "path": [
+                    "{{tradeId}}",
+                    "cancel"
+                  ]
+                },
+                "description": "Trade -> cancelled; drop reopens (direct drop is deleted). 409 if a dispute is open."
               },
               "response": []
             },
@@ -1614,7 +1489,7 @@
                 "header": [],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n    \"stars\": 5,\n    \"body\": \"Great collab\"\n}",
+                  "raw": "{\n    \"rating\": 5,\n    \"comment\": \"Great to work with\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1631,7 +1506,7 @@
                     "review"
                   ]
                 },
-                "description": "API-057"
+                "description": "Only when trade is completed, caller is a party and no open dispute."
               },
               "response": []
             }
@@ -2817,6 +2692,126 @@
               "response": []
             }
           ]
+        },
+        {
+          "name": "Dispute",
+          "item": [
+            {
+              "name": "Raise Dispute",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('Status code is success', function () { pm.expect(pm.response.code).to.be.oneOf([200, 201]); });",
+                      "try { var j = pm.response.json(); var v = j.data && j.data._id; if (v) { pm.environment.set('disputeId', v); pm.collectionVariables.set('disputeId', v); } } catch (e) { console.log(e); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}trades/{{tradeId}}/disputes",
+                  "host": [
+                    "{{url}}trades"
+                  ],
+                  "path": [
+                    "{{tradeId}}",
+                    "disputes"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"reason\": \"not_fulfilled\",\n    \"description\": \"The other party did not deliver what was agreed.\",\n    \"evidence\": [\n        \"noimg.png\"\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "reason: not_fulfilled|fraud|other. Active trade, or within 7 days after completion. Max 3 open per user."
+              },
+              "response": []
+            },
+            {
+              "name": "My Disputes",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}disputes?page=1&limit=10&status=",
+                  "host": [
+                    "{{url}}disputes"
+                  ],
+                  "path": [],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Get Dispute",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}disputes/{{disputeId}}",
+                  "host": [
+                    "{{url}}disputes"
+                  ],
+                  "path": [
+                    "{{disputeId}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Respond to Dispute",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}disputes/{{disputeId}}/respond",
+                  "host": [
+                    "{{url}}disputes"
+                  ],
+                  "path": [
+                    "{{disputeId}}",
+                    "respond"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"response\": \"I delivered on Saturday as agreed.\",\n    \"responseEvidence\": [\n        \"proof.png\"\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "description": "Only the accused, once."
+              },
+              "response": []
+            }
+          ]
         }
       ]
     },
@@ -3044,6 +3039,117 @@
           ]
         },
         {
+          "name": "Badges",
+          "item": [
+            {
+              "name": "create",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Founding Member\",\n  \"slug\": \"founding-member\",\n  \"description\": \"Awarded to users who joined Trade Drop during the founding period.\",\n  \"icon\": \"⭐\",\n  \"metric\": \"user_registration_number\",\n  \"operator\": \"<=\",   //\">=\", \">\", \"=\", \"<=\", \"<\"\n  \"threshold\": 100,\n  \"isActive\": true,\n  \"sortOrder\": 1\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}admin/badges",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "badges"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "patch",
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n\"description\": \"Awarded to users who joined Trade Drop during the founding period.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}admin/badges/6aaa4908c59a4160fdfda53a",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "badges",
+                    "6aaa4908c59a4160fdfda53a"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "get",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}admin/badges",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "badges"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "get by id",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}admin/badges/6aaa4908c59a4160fdfda53a",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "badges",
+                    "6aaa4908c59a4160fdfda53a"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "delete",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}admin/badges/6aa156a766673dd7dd9963d1",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "badges",
+                    "6aa156a766673dd7dd9963d1"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
           "name": "Dashboard",
           "item": [
             {
@@ -3077,7 +3183,7 @@
                   "script": {
                     "type": "text/javascript",
                     "exec": [
-                      "pm.test(\"Status code is 200\", function () {\n    pm.response.to.have.status(200);\n\n\n    pm.test(\"Token\", function () {\n        var jsonData = pm.response.json();\n        pm.collectionVariables.set(\"tokenAdmin\", jsonData.data.token);\n        pm.environment.set(\"tokenAdmin\", jsonData.data.token);\n        \n    });\n});"
+                      "pm.test(\"Status code is 200\", function () {\n    pm.response.to.have.status(200);\n\n\n    pm.test(\"Token\", function () {\n        var jsonData = pm.response.json();\n        pm.collectionVariables.set(\"tokenAdmin\", jsonData.data.token);\n        pm.environment.set(\"tokenAdmin\", jsonData.data.token);\n        pm.environment.set(\"token\", jsonData.data.token);\n        \n    });\n});"
                     ]
                   }
                 }
@@ -3117,31 +3223,10 @@
                 {
                   "listen": "test",
                   "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "",
-                      "",
-                      "    pm.test(\"Token\", function () {",
-                      "        var jsonData = pm.response.json();",
-                      "        pm.environment.set(\"token\", jsonData.data.token);",
-                      "    });",
-                      "});"
-                    ],
                     "type": "text/javascript",
-                    "packages": {},
-                    "requests": {}
-                  }
-                },
-                {
-                  "listen": "prerequest",
-                  "script": {
                     "exec": [
-                      ""
-                    ],
-                    "type": "text/javascript",
-                    "packages": {},
-                    "requests": {}
+                      "pm.test(\"Status code is 200\", function () {\n    pm.response.to.have.status(200);\n\n\n    pm.test(\"Token\", function () {\n        var jsonData = pm.response.json();\n        pm.environment.set(\"token\", jsonData.data.token);\n    });\n});"
+                    ]
                   }
                 }
               ],
@@ -3150,7 +3235,7 @@
                 "header": [],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n    \"email\": \"admin@tradedrop.com\",\n    \"newPassword\": \"Spl31sC@Adm!n\",\n    \"resetToken\" : \"968fb8e7f739fd2c72a11b2a8e193649bcd3ef2b43c766370309ebd29be78432\"\n}",
+                  "raw": "{\n    \"email\": \"admin@tradedrop.com\",\n    \"password\": \"Spl31sC@Adm!n\",\n    \"resetToken\" : \"968fb8e7f739fd2c72a11b2a8e193649bcd3ef2b43c766370309ebd29be78432\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -3243,36 +3328,12 @@
             },
             {
               "name": "verify Otp Admin",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      ""
-                    ],
-                    "type": "text/javascript",
-                    "packages": {},
-                    "requests": {}
-                  }
-                },
-                {
-                  "listen": "prerequest",
-                  "script": {
-                    "exec": [
-                      ""
-                    ],
-                    "type": "text/javascript",
-                    "packages": {},
-                    "requests": {}
-                  }
-                }
-              ],
               "request": {
                 "method": "POST",
                 "header": [],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n    \"email\": \"admin@tradedrop.com\",\n    \"otp\":\"881696\"\n}",
+                  "raw": "{\n    \"email\": \"admin@tradedrop.com\",\n    \"purpose\":\"password_reset\", //signup password_reset\n    \"code\":\"3156\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -3340,6 +3401,117 @@
                     "email"
                   ]
                 }
+              },
+              "response": []
+            },
+            {
+              "name": "forgot password",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n   \"email\": \"admin@tradedrop.com\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}auth/forgot-password",
+                  "host": [
+                    "{{url}}auth"
+                  ],
+                  "path": [
+                    "forgot-password"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "change password",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"oldPassword\": \"123456\",\n    \"newPassword\": \"12345678\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}auth/change-password",
+                  "host": [
+                    "{{url}}auth"
+                  ],
+                  "path": [
+                    "change-password"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "get user",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "method": "GET",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}admin/users/6a9684535e72156fd9d06dc5",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "users",
+                    "6a9684535e72156fd9d06dc5"
+                  ]
+                },
+                "description": "API-021"
+              },
+              "response": []
+            },
+            {
+              "name": "update user",
+              "request": {
+                "method": "PUT",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    // \"name\": \"Maya Lens\",\n    // \"bio\": \"Photographer in Soho\",\n    // \"handle\": \"maya_lens\"\n    \"areaLabel\": \"Soho\",\n    \"lat\":31.4898,\n    \"lng\":74.4496\n\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}admin/users/6a9684535e72156fd9d06dc5",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "users",
+                    "6a9684535e72156fd9d06dc5"
+                  ]
+                },
+                "description": "API-021"
               },
               "response": []
             }
@@ -3536,7 +3708,7 @@
                 "header": [],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\r\n    \"title\": \"Announcement\",\r\n    \"body\": \"Hello to all!\",\r\n    \"type\": \"everyone\", //\"everyone\", \"category\", \"area\", \"activity\"\r\n    \"value\": \"\" //value is _id for category and value for others\r\n}\r\n\r\n// All users { \"title\": \"Announcement\", \"body\": \"Hello everyone\", \"type\": \"all\" }\r\n//By category { \"title\": \"Announcement\", \"body\": \"For sports users\", \"type\": \"category\", \"target\": \"6a96781df22a556c1f3aae13\" }\r\n//By area { \"title\": \"Announcement\", \"body\": \"For Islamabad users\", \"type\": \"area\", \"target\": \"Islamabad\" }\r\n\r\n",
+                  "raw": "{\r\n    \"title\": \"Announcement\",\r\n    \"body\": \"Hello to all!\",\r\n    \"type\": \"everyone\", //\"everyone\", \"category\", \"area\", \"activity\"\r\n    \"value\": \"\" //value is _id for category and value for others\r\n}\r\n\r\n// All users { \"title\": \"Announcement\", \"body\": \"Hello everyone\", \"type\": \"everyone\" }\r\n//By category { \"title\": \"Announcement\", \"body\": \"For sports users\", \"type\": \"category\", \"target\": \"6a96781df22a556c1f3aae13\" }\r\n//By area { \"title\": \"Announcement\", \"body\": \"For Islamabad users\", \"type\": \"area\", \"target\": \"Islamabad\" }\r\n\r\n",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -3641,6 +3813,61 @@
                       "key": "limit",
                       "value": "10",
                       "disabled": true
+                    },
+                    {
+                      "key": "keyword",
+                      "value": "maya",
+                      "disabled": true
+                    },
+                    {
+                      "key": "areaLabel",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "status",
+                      "value": "rejected",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "Uploading single/multiple files is possible"
+              },
+              "response": []
+            },
+            {
+              "name": "users reviews",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "content-type",
+                    "value": "image/png",
+                    "disabled": true
+                  }
+                ],
+                "url": {
+                  "raw": "{{url}}admin/users/reviews?page=1&limit=10",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "users",
+                    "reviews"
+                  ],
+                  "query": [
+                    {
+                      "key": "categoryId",
+                      "value": "6a96781df22a556c1f3aae14",
+                      "disabled": true
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
                     },
                     {
                       "key": "keyword",
@@ -3752,6 +3979,610 @@
                 "url": {
                   "raw": ""
                 }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Catalog",
+          "item": [
+            {
+              "name": "List Categories",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {\n    pm.response.to.have.status(200);\n});\ntry {\n    var jsonData = pm.response.json();\n    if (jsonData && Array.isArray(jsonData.data) && jsonData.data[0] && jsonData.data[0]._id) {\n        pm.environment.set(\"categoryId\", jsonData.data[0]._id);\n        pm.collectionVariables.set(\"categoryId\", jsonData.data[0]._id);\n    }\n} catch (e) { console.log(e); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}admin/catalog/categories/all",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "catalog",
+                    "categories",
+                    "all"
+                  ]
+                },
+                "description": "API-010 — public"
+              },
+              "response": []
+            },
+            {
+              "name": "Update Categories",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {\n    pm.response.to.have.status(200);\n});\ntry {\n    var jsonData = pm.response.json();\n    if (jsonData && Array.isArray(jsonData.data) && jsonData.data[0] && jsonData.data[0]._id) {\n        pm.environment.set(\"categoryId\", jsonData.data[0]._id);\n        pm.collectionVariables.set(\"categoryId\", jsonData.data[0]._id);\n    }\n} catch (e) { console.log(e); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"status\":\"active\" //active inactive\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}admin/catalog/categories/{{categoryId}}/status",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "catalog",
+                    "categories",
+                    "{{categoryId}}",
+                    "status"
+                  ]
+                },
+                "description": "API-010 — public"
+              },
+              "response": []
+            },
+            {
+              "name": "add category",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {\n    pm.response.to.have.status(200);\n});\ntry {\n    var jsonData = pm.response.json();\n    if (jsonData && Array.isArray(jsonData.data) && jsonData.data && jsonData.data.category._id) {\n        pm.environment.set(\"categoryId\", jsonData.data.category._id);\n        pm.collectionVariables.set(\"categoryId\", jsonData.data.category._id);\n    }\n} catch (e) { console.log(e); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n  \"slug\": \"xyz\",\r\n  \"name\": \"XYZ\",\r\n  \"parentId\": null,\r\n  \"chipGroup\": \"photo\",\r\n  \"image\": \"xyz.jpg\",\r\n  \"sortOrder\": 1\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}admin/catalog/categories",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "catalog",
+                    "categories"
+                  ]
+                },
+                "description": "API-010 — public"
+              },
+              "response": []
+            },
+            {
+              "name": "add category Copy",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {\n    pm.response.to.have.status(200);\n});\ntry {\n    var jsonData = pm.response.json();\n    if (jsonData && Array.isArray(jsonData.data) && jsonData.data && jsonData.data.category._id) {\n        pm.environment.set(\"categoryId\", jsonData.data.category._id);\n        pm.collectionVariables.set(\"categoryId\", jsonData.data.category._id);\n    }\n} catch (e) { console.log(e); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n  \"slug\": \"xyz\",\r\n  \"name\": \"XYZ\",\r\n  \"parentId\": null,\r\n  \"chipGroup\": \"photo\",\r\n  \"image\": \"xyz.jpg\",\r\n  \"sortOrder\": 1\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}admin/catalog/categories",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "catalog",
+                    "categories"
+                  ]
+                },
+                "description": "API-010 — public"
+              },
+              "response": []
+            },
+            {
+              "name": "Get app settings",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}admin/catalog/app-settings",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "catalog",
+                    "app-settings"
+                  ]
+                },
+                "description": "API-011 — slug: terms | privacy | about | faq"
+              },
+              "response": []
+            },
+            {
+              "name": "Update app setting",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {\n    pm.response.to.have.status(200);\n});\ntry {\n    var jsonData = pm.response.json();\n    if (jsonData && Array.isArray(jsonData.data) && jsonData.data[0] && jsonData.data[0]._id) {\n        pm.environment.set(\"categoryId\", jsonData.data[0]._id);\n        pm.collectionVariables.set(\"categoryId\", jsonData.data[0]._id);\n    }\n} catch (e) { console.log(e); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"radarRadiusKm\":25\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}admin/catalog/app-settings",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "catalog",
+                    "app-settings"
+                  ]
+                },
+                "description": "API-010 — public"
+              },
+              "response": []
+            },
+            {
+              "name": "List Timing chips",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}admin/catalog/timing-chips?status=inactive",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "catalog",
+                    "timing-chips"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "inactive"
+                    }
+                  ]
+                },
+                "description": "API-010 — public"
+              },
+              "response": []
+            },
+            {
+              "name": "Remove Timing chip",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}admin/catalog/timing-chips/6a9abe534bbce99d3f467e28",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "catalog",
+                    "timing-chips",
+                    "6a9abe534bbce99d3f467e28"
+                  ]
+                },
+                "description": "API-010 — public"
+              },
+              "response": []
+            },
+            {
+              "name": "Add Timing chips",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      ""
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"value\": \"asap\",\r\n    \"label\": \"ASAP\",\r\n    \"sortOrder\": 1\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}admin/catalog/timing-chips",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "catalog",
+                    "timing-chips"
+                  ]
+                },
+                "description": "API-010 — public"
+              },
+              "response": []
+            },
+            {
+              "name": "UpdateTiming chip",
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"value\": \"asap\",\r\n    \"label\": \"ASAP\",\r\n    \"status\":\"active\", // active , inactive\r\n    \"sortOrder\": 1\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}admin/catalog/timing-chips/6ab22e09a6b223a66c52736b",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "catalog",
+                    "timing-chips",
+                    "6ab22e09a6b223a66c52736b"
+                  ]
+                },
+                "description": "API-010 — public"
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "faqs",
+          "item": [
+            {
+              "name": "create",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "content-type",
+                    "value": "image/png",
+                    "disabled": true
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"question\": \"What is Trade Drop?\", \r\n\t\"answer\": \"An independent exchange network where serious creatives turn skill into leverage — without fees or gatekeepers.\",\r\n\t\"type\": \"general\"\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}admin/faqs",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "faqs"
+                  ]
+                },
+                "description": "Uploading single/multiple files is possible"
+              },
+              "response": [
+                {
+                  "name": "create",
+                  "originalRequest": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "content-type",
+                        "value": "image/png",
+                        "type": "text",
+                        "disabled": true
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\r\n    \"question\": \"What is spiltz?\", \r\n\t\"answer\": \"Spiltz is a smart, modern group expense and pool-banking ecosystem designed to take the awkwardness out of shared finances. Whether you are splitting a dinner bill instantly or collecting funds in advance for an upcoming group trip, Spiltz simplifies the entire journey. By combining seamless expense tracking with an automated group wallet, we make sure that managing money with your friends, roommates, or colleagues is completely transparent and effortless.\",\r\n\t\"type\": \"general\"\r\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "{{url}}admin/faqs",
+                      "host": [
+                        "{{url}}admin"
+                      ],
+                      "path": [
+                        "faqs"
+                      ]
+                    }
+                  },
+                  "status": "Created",
+                  "code": 201,
+                  "_postman_previewlanguage": null,
+                  "header": [
+                    {
+                      "key": "Content-Security-Policy",
+                      "value": "default-src 'self';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline';img-src 'self' data:;connect-src *;base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';object-src 'none';script-src-attr 'none';upgrade-insecure-requests"
+                    },
+                    {
+                      "key": "Cross-Origin-Embedder-Policy",
+                      "value": "require-corp"
+                    },
+                    {
+                      "key": "Cross-Origin-Opener-Policy",
+                      "value": "same-origin"
+                    },
+                    {
+                      "key": "Cross-Origin-Resource-Policy",
+                      "value": "same-origin"
+                    },
+                    {
+                      "key": "Origin-Agent-Cluster",
+                      "value": "?1"
+                    },
+                    {
+                      "key": "Referrer-Policy",
+                      "value": "no-referrer"
+                    },
+                    {
+                      "key": "Strict-Transport-Security",
+                      "value": "max-age=31536000; includeSubDomains"
+                    },
+                    {
+                      "key": "X-Content-Type-Options",
+                      "value": "nosniff"
+                    },
+                    {
+                      "key": "X-DNS-Prefetch-Control",
+                      "value": "off"
+                    },
+                    {
+                      "key": "X-Download-Options",
+                      "value": "noopen"
+                    },
+                    {
+                      "key": "X-Frame-Options",
+                      "value": "SAMEORIGIN"
+                    },
+                    {
+                      "key": "X-Permitted-Cross-Domain-Policies",
+                      "value": "none"
+                    },
+                    {
+                      "key": "X-XSS-Protection",
+                      "value": "0"
+                    },
+                    {
+                      "key": "Vary",
+                      "value": "Origin, Accept-Encoding"
+                    },
+                    {
+                      "key": "Access-Control-Allow-Credentials",
+                      "value": "true"
+                    },
+                    {
+                      "key": "RateLimit-Policy",
+                      "value": "200;w=900"
+                    },
+                    {
+                      "key": "RateLimit-Limit",
+                      "value": "200"
+                    },
+                    {
+                      "key": "RateLimit-Remaining",
+                      "value": "199"
+                    },
+                    {
+                      "key": "RateLimit-Reset",
+                      "value": "900"
+                    },
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json; charset=utf-8"
+                    },
+                    {
+                      "key": "Content-Length",
+                      "value": "685"
+                    },
+                    {
+                      "key": "ETag",
+                      "value": "W/\"2ad-88Ky6vbHJNF+srjTeJAOnaA0UpU\""
+                    },
+                    {
+                      "key": "Date",
+                      "value": "Thu, 16 Jul 2026 11:29:04 GMT"
+                    },
+                    {
+                      "key": "Connection",
+                      "value": "keep-alive"
+                    },
+                    {
+                      "key": "Keep-Alive",
+                      "value": "timeout=5"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"message\": \"Faqs created successfully\",\n    \"data\": {\n        \"question\": \"What is spiltz?\",\n        \"answer\": \"Spiltz is a smart, modern group expense and pool-banking ecosystem designed to take the awkwardness out of shared finances. Whether you are splitting a dinner bill instantly or collecting funds in advance for an upcoming group trip, Spiltz simplifies the entire journey. By combining seamless expense tracking with an automated group wallet, we make sure that managing money with your friends, roommates, or colleagues is completely transparent and effortless.\",\n        \"type\": \"general\",\n        \"_id\": \"6a58c08039596517c82d3425\",\n        \"createdAt\": \"2026-07-16T11:29:04.204Z\",\n        \"updatedAt\": \"2026-07-16T11:29:04.204Z\",\n        \"__v\": 0\n    }\n}"
+                }
+              ]
+            },
+            {
+              "name": "update",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "content-type",
+                    "value": "image/png",
+                    "type": "text",
+                    "disabled": true
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"question\": \"What is spiltz?\",\r\n    \"answer\": \"Spiltz is a smart, modern group expense and pool-banking ecosystem designed to take the awkwardness out of shared finances. Whether you are splitting a dinner bill instantly or collecting funds in advance for an upcoming group trip, Spiltz simplifies the entire journey. By combining seamless expense tracking with an automated group wallet, we make sure that managing money with your friends, roommates, or colleagues is completely transparent and effortless.\",\r\n    \"type\": \"general\"\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}admin/faqs/6a58c08039596517c82d3425",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "faqs",
+                    "6a58c08039596517c82d3425"
+                  ]
+                },
+                "description": "Uploading single/multiple files is possible"
+              },
+              "response": []
+            },
+            {
+              "name": "all",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "content-type",
+                    "value": "image/png",
+                    "type": "text",
+                    "disabled": true
+                  }
+                ],
+                "url": {
+                  "raw": "{{url}}admin/faqs",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "faqs"
+                  ],
+                  "query": [
+                    {
+                      "key": "keyword",
+                      "value": null,
+                      "type": "text",
+                      "disabled": true
+                    },
+                    {
+                      "key": "status",
+                      "value": null,
+                      "type": "text",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "Uploading single/multiple files is possible"
+              },
+              "response": []
+            },
+            {
+              "name": "delete",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "content-type",
+                    "value": "image/png",
+                    "type": "text",
+                    "disabled": true
+                  }
+                ],
+                "url": {
+                  "raw": "{{url}}admin/faqs/6a58c08039596517c82d3425",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "faqs",
+                    "6a58c08039596517c82d3425"
+                  ]
+                },
+                "description": "Uploading single/multiple files is possible"
               },
               "response": []
             }
@@ -3976,6 +4807,209 @@
             {
               "name": "support",
               "request": {
+                "method": "PUT",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"status\": \"responded\", //'pending', 'responded', 'resolved', 'closed', 'deleted'\n    \"response\": \"we will update soon.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}admin/support/6a58b46bc33b06d7a558a706",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "support",
+                    "6a58b46bc33b06d7a558a706"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "support",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"status\": \"responded\", //'pending', 'responded', 'resolved', 'closed', 'deleted'\n    \"response\": \"we will update soon.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{url}}admin/support/6a58b46bc33b06d7a558a706",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "support",
+                    "6a58b46bc33b06d7a558a706"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "support",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}admin/support?status=pending",
+                  "host": [
+                    "{{url}}admin"
+                  ],
+                  "path": [
+                    "support"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "pending",
+                      "description": "'pending', 'responded', 'resolved', 'closed', 'deleted'",
+                      "type": "text"
+                    }
+                  ]
+                }
+              },
+              "response": [
+                {
+                  "name": "support",
+                  "originalRequest": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}admin/support",
+                      "host": [
+                        "{{url}}admin"
+                      ],
+                      "path": [
+                        "support"
+                      ]
+                    }
+                  },
+                  "status": "OK",
+                  "code": 200,
+                  "_postman_previewlanguage": null,
+                  "header": [
+                    {
+                      "key": "Content-Security-Policy",
+                      "value": "default-src 'self';script-src 'self' 'unsafe-inline';style-src 'self' 'unsafe-inline';img-src 'self' data:;connect-src *;base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';object-src 'none';script-src-attr 'none';upgrade-insecure-requests"
+                    },
+                    {
+                      "key": "Cross-Origin-Embedder-Policy",
+                      "value": "require-corp"
+                    },
+                    {
+                      "key": "Cross-Origin-Opener-Policy",
+                      "value": "same-origin"
+                    },
+                    {
+                      "key": "Cross-Origin-Resource-Policy",
+                      "value": "same-origin"
+                    },
+                    {
+                      "key": "Origin-Agent-Cluster",
+                      "value": "?1"
+                    },
+                    {
+                      "key": "Referrer-Policy",
+                      "value": "no-referrer"
+                    },
+                    {
+                      "key": "Strict-Transport-Security",
+                      "value": "max-age=31536000; includeSubDomains"
+                    },
+                    {
+                      "key": "X-Content-Type-Options",
+                      "value": "nosniff"
+                    },
+                    {
+                      "key": "X-DNS-Prefetch-Control",
+                      "value": "off"
+                    },
+                    {
+                      "key": "X-Download-Options",
+                      "value": "noopen"
+                    },
+                    {
+                      "key": "X-Frame-Options",
+                      "value": "SAMEORIGIN"
+                    },
+                    {
+                      "key": "X-Permitted-Cross-Domain-Policies",
+                      "value": "none"
+                    },
+                    {
+                      "key": "X-XSS-Protection",
+                      "value": "0"
+                    },
+                    {
+                      "key": "Vary",
+                      "value": "Origin, Accept-Encoding"
+                    },
+                    {
+                      "key": "Access-Control-Allow-Credentials",
+                      "value": "true"
+                    },
+                    {
+                      "key": "RateLimit-Policy",
+                      "value": "5;w=600"
+                    },
+                    {
+                      "key": "RateLimit-Limit",
+                      "value": "5"
+                    },
+                    {
+                      "key": "RateLimit-Remaining",
+                      "value": "4"
+                    },
+                    {
+                      "key": "RateLimit-Reset",
+                      "value": "600"
+                    },
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json; charset=utf-8"
+                    },
+                    {
+                      "key": "Content-Length",
+                      "value": "744"
+                    },
+                    {
+                      "key": "ETag",
+                      "value": "W/\"2e8-EcFqxx6vo0X41fRpI9ddqrOmuS8\""
+                    },
+                    {
+                      "key": "Date",
+                      "value": "Thu, 16 Jul 2026 10:55:08 GMT"
+                    },
+                    {
+                      "key": "Connection",
+                      "value": "keep-alive"
+                    },
+                    {
+                      "key": "Keep-Alive",
+                      "value": "timeout=5"
+                    }
+                  ],
+                  "cookie": [],
+                  "body": "{\n    \"message\": \"Support requests fetched successfully\",\n    \"data\": [\n        {\n            \"_id\": \"6a58b46bc33b06d7a558a706\",\n            \"name\": \"John Doe\",\n            \"user\": {\n                \"_id\": \"6a58816210a5d290c9ba17bf\",\n                \"profileIcon\": \"https://instruction-metal-antibodies-receiving.trycloudflare.com/upload/noimg.png\",\n                \"name\": \"Veda.Spencer\",\n                \"email\": \"testuser2694@gmail.com\"\n            },\n            \"subject\": \"Issue with the app login\",\n            \"message\": \"I am unable to log into the app with my credentials. Please assist.\",\n            \"response\": null,\n            \"status\": \"pending\",\n            \"ticket\": \"TCK-1784198251434-673\",\n            \"createdAt\": \"2026-07-16T10:37:31.435Z\",\n            \"updatedAt\": \"2026-07-16T10:37:31.435Z\",\n            \"__v\": 0\n        }\n    ],\n    \"meta\": {\n        \"currentPage\": 1,\n        \"totalPages\": 1,\n        \"totalRecords\": 1,\n        \"limit\": 10,\n        \"supportRequestsCount\": {\n            \"total\": 1,\n            \"pending\": 1,\n            \"responded\": 0,\n            \"resolved\": 0,\n            \"closed\": 0,\n            \"deleted\": 0\n        }\n    }\n}"
+                }
+              ]
+            },
+            {
+              "name": "support",
+              "request": {
                 "method": "POST",
                 "header": [],
                 "body": {
@@ -3999,271 +5033,173 @@
           ]
         },
         {
-          "name": "Catalog",
+          "name": "Trades & Disputes",
           "item": [
             {
-              "name": "List Categories",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {\n    pm.response.to.have.status(200);\n});\ntry {\n    var jsonData = pm.response.json();\n    if (jsonData && Array.isArray(jsonData.data) && jsonData.data[0] && jsonData.data[0]._id) {\n        pm.environment.set(\"categoryId\", jsonData.data[0]._id);\n        pm.collectionVariables.set(\"categoryId\", jsonData.data[0]._id);\n    }\n} catch (e) { console.log(e); }"
-                    ]
-                  }
-                }
-              ],
+              "name": "List All Disputes",
               "request": {
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}admin/catalog/categories",
+                  "raw": "{{url}}disputes?scope=all&page=1&limit=10&status=",
                   "host": [
-                    "{{url}}admin"
+                    "{{url}}disputes"
                   ],
-                  "path": [
-                    "catalog",
-                    "categories"
-                  ]
-                },
-                "description": "API-010 — public"
-              },
-              "response": []
-            },
-            {
-              "name": "Update Categories",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {\n    pm.response.to.have.status(200);\n});\ntry {\n    var jsonData = pm.response.json();\n    if (jsonData && Array.isArray(jsonData.data) && jsonData.data[0] && jsonData.data[0]._id) {\n        pm.environment.set(\"categoryId\", jsonData.data[0]._id);\n        pm.collectionVariables.set(\"categoryId\", jsonData.data[0]._id);\n    }\n} catch (e) { console.log(e); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "PATCH",
-                "header": [],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\r\n    \"active\":true\r\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
+                  "path": [],
+                  "query": [
+                    {
+                      "key": "scope",
+                      "value": "all"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true
                     }
-                  }
-                },
-                "url": {
-                  "raw": "{{url}}admin/catalog/categories/{{categoryId}}/status",
-                  "host": [
-                    "{{url}}admin"
-                  ],
-                  "path": [
-                    "catalog",
-                    "categories",
-                    "{{categoryId}}",
-                    "status"
                   ]
                 },
-                "description": "API-010 — public"
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{tokenAdmin}}",
+                      "type": "string"
+                    }
+                  ]
+                }
               },
               "response": []
             },
             {
-              "name": "add category",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {\n    pm.response.to.have.status(200);\n});\ntry {\n    var jsonData = pm.response.json();\n    if (jsonData && Array.isArray(jsonData.data) && jsonData.data && jsonData.data.category._id) {\n        pm.environment.set(\"categoryId\", jsonData.data.category._id);\n        pm.collectionVariables.set(\"categoryId\", jsonData.data.category._id);\n    }\n} catch (e) { console.log(e); }"
-                    ]
-                  }
+              "name": "Get Dispute",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}disputes/{{disputeId}}",
+                  "host": [
+                    "{{url}}disputes"
+                  ],
+                  "path": [
+                    "{{disputeId}}"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{tokenAdmin}}",
+                      "type": "string"
+                    }
+                  ]
                 }
-              ],
+              },
+              "response": []
+            },
+            {
+              "name": "Resolve Dispute",
               "request": {
                 "method": "POST",
                 "header": [],
+                "url": {
+                  "raw": "{{url}}disputes/{{disputeId}}/resolve",
+                  "host": [
+                    "{{url}}disputes"
+                  ],
+                  "path": [
+                    "{{disputeId}}",
+                    "resolve"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{tokenAdmin}}",
+                      "type": "string"
+                    }
+                  ]
+                },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\r\n  \"slug\": \"xyz\",\r\n  \"name\": \"XYZ\",\r\n  \"parentId\": null,\r\n  \"chipGroup\": \"photo\",\r\n  \"image\": \"xyz.jpg\",\r\n  \"sortOrder\": 1\r\n}",
+                  "raw": "{\n    \"outcome\": \"dismissed\",\n    \"faultUserId\": \"{{targetUserId}}\",\n    \"resolutionNote\": \"complete | cancel | dismissed\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
                     }
                   }
                 },
-                "url": {
-                  "raw": "{{url}}admin/catalog/categories",
-                  "host": [
-                    "{{url}}admin"
-                  ],
-                  "path": [
-                    "catalog",
-                    "categories"
-                  ]
-                },
-                "description": "API-010 — public"
+                "description": "outcome: complete (trade completed + Connection), cancel (trade cancelled + drop reopened), dismissed (trade continues). faultUserId increments User.stats.disputesLost."
               },
               "response": []
             },
             {
-              "name": "CMS",
+              "name": "List Reviews",
               "request": {
-                "method": "POST",
+                "method": "GET",
                 "header": [],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\r\n    \"title\":\"Terms and conditions\",\r\n    \"slug\":\"terms\",\r\n    \"bodyMarkdown\":\"# Terms and conditions\\n\\nPlaceholder TradeDrop terms and conditions.\"\r\n\r\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
+                "url": {
+                  "raw": "{{url}}reviews?page=1&limit=10&tradeId=&reviewerId=&revieweeId=&rating=",
+                  "host": [
+                    "{{url}}reviews"
+                  ],
+                  "path": [],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "tradeId",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "reviewerId",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "revieweeId",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "rating",
+                      "value": "",
+                      "disabled": true
                     }
-                  }
-                },
-                "url": {
-                  "raw": "{{url}}admin/catalog/cms-pages",
-                  "host": [
-                    "{{url}}admin"
-                  ],
-                  "path": [
-                    "catalog",
-                    "cms-pages"
                   ]
                 },
-                "description": "API-011 — slug: terms | privacy | about | faq"
-              },
-              "response": []
-            },
-            {
-              "name": "CMS",
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{url}}admin/catalog/cms-pages",
-                  "host": [
-                    "{{url}}admin"
-                  ],
-                  "path": [
-                    "catalog",
-                    "cms-pages"
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{tokenAdmin}}",
+                      "type": "string"
+                    }
                   ]
-                },
-                "description": "API-011 — slug: terms | privacy | about | faq"
-              },
-              "response": []
-            },
-            {
-              "name": "Get app settings",
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{url}}admin/catalog/app-settings",
-                  "host": [
-                    "{{url}}admin"
-                  ],
-                  "path": [
-                    "catalog",
-                    "app-settings"
-                  ]
-                },
-                "description": "API-011 — slug: terms | privacy | about | faq"
-              },
-              "response": []
-            },
-            {
-              "name": "Update app setting",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {\n    pm.response.to.have.status(200);\n});\ntry {\n    var jsonData = pm.response.json();\n    if (jsonData && Array.isArray(jsonData.data) && jsonData.data[0] && jsonData.data[0]._id) {\n        pm.environment.set(\"categoryId\", jsonData.data[0]._id);\n        pm.collectionVariables.set(\"categoryId\", jsonData.data[0]._id);\n    }\n} catch (e) { console.log(e); }"
-                    ]
-                  }
                 }
-              ],
-              "request": {
-                "method": "PATCH",
-                "header": [],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\r\n    \"radarRadiusKm\":25\r\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                },
-                "url": {
-                  "raw": "{{url}}admin/catalog/app-settings",
-                  "host": [
-                    "{{url}}admin"
-                  ],
-                  "path": [
-                    "catalog",
-                    "app-settings"
-                  ]
-                },
-                "description": "API-010 — public"
-              },
-              "response": []
-            },
-            {
-              "name": "List Timing chips",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {\n    pm.response.to.have.status(200);\n});\ntry {\n    var jsonData = pm.response.json();\n    if (jsonData && Array.isArray(jsonData.data) && jsonData.data[0] && jsonData.data[0]._id) {\n        pm.environment.set(\"categoryId\", jsonData.data[0]._id);\n        pm.collectionVariables.set(\"categoryId\", jsonData.data[0]._id);\n    }\n} catch (e) { console.log(e); }"
-                    ]
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{url}}admin/catalog/timing-chips",
-                  "host": [
-                    "{{url}}admin"
-                  ],
-                  "path": [
-                    "catalog",
-                    "timing-chips"
-                  ]
-                },
-                "description": "API-010 — public"
               },
               "response": []
             }
           ]
-        },
-        {
-          "name": "support",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{url}}support/requests",
-              "host": [
-                "{{url}}support"
-              ],
-              "path": [
-                "requests"
-              ]
-            }
-          },
-          "response": []
         }
       ],
       "auth": {
@@ -4362,6 +5298,16 @@
     {
       "key": "tokenAdmin",
       "value": ""
+    },
+    {
+      "key": "disputeId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "targetUserId",
+      "value": "",
+      "type": "string"
     }
   ]
 }

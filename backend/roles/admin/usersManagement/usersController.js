@@ -12,7 +12,7 @@ const usersService = require("./usersService.js");
 const { registerUserUtility } = require("../../../controllers/authUtil.js");
 const { getFullImageUrl } = require("@helperUtils/imageHelper.js");
 const badgesService = require("../badges/badgesService");
-const { getAllTapInReviews } = require("@backend/roles/user/tapIns/tapInService.js");
+const { getAllReviews: getAllTapInReviews } = require("@backend/roles/user/trades/service.js");
 
 const createUser = async (req, res) => {
   const result = await registerUserUtility(req, res, {
