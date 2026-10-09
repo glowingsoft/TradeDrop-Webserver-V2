@@ -11,4 +11,7 @@ module.exports = {
   resolveDispute: one(200, "dispute_resolved", (req) =>
     service.resolveDispute(req.params.id, actorOf(req), req.body || {}),
   ),
+  mutualResolveDispute: one(200, "dispute_mutual_resolved", (req) =>
+    service.mutualResolveDispute(req.params.id, actorOf(req), req.body || {}),
+  ),
 };

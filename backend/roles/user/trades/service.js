@@ -274,6 +274,7 @@ async function listTrades(req) {
       .populate("requesterId", "name handle email profileIcon")
       .populate("responderId", "name handle email profileIcon")
       .populate("dropId", "needText offerText status areaLabel")
+      .populate("tapInId", "yourOffer status")
       .lean(),
     Trade.countDocuments(match),
     // status counts honor every filter except status itself

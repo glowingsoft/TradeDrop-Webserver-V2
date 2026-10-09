@@ -2,6 +2,10 @@
 
 const { ObjectId } = mongoose.Schema.Types;
 
+function generateTradeCode() {
+  return `TR${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
 const sideSchema = new mongoose.Schema(
   {
     doneAt: { type: Date, default: null },
@@ -12,6 +16,14 @@ const sideSchema = new mongoose.Schema(
 
 const tradeSchema = new mongoose.Schema(
   {
+    tradeCode: {
+      type: String,
+      default: generateTradeCode,
+      immutable: true,
+      match: /^TR\d{4}$/,
+      unique: true,
+      index: true,
+    },
     tapInId: { type: ObjectId, ref: "TapIn", required: true, unique: true },
     dropId: { type: ObjectId, ref: "Drop", required: true, index: true },
     dropOwnerId: { type: ObjectId, ref: "User", required: true },

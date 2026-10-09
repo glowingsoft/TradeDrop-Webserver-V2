@@ -105,18 +105,37 @@ async function resolveDispute(disputeId, actor, body = {}) {
   const id = toObjectId(disputeId, "dispute_not_found");
   if (!DISPUTE_OUTCOMES.includes(body.outcome)) throw httpError(400, "dispute_outcome_invalid");
   const resolutionNote = textOrEmpty(body.resolutionNote, 2000, "resolution_note_too_long");
+  const internalNote = textOrEmpty(body.internalNote, 2000, "internal_note_too_long");
   const faultUserId = body.faultUserId ? toObjectId(body.faultUserId, "user_not_found") : null;
 
+  const result = await applyResolution(id, {
+    outcome: body.outcome,
+    faultUserId,
+    resolvedBy: actor._id,
+    resolutionType: body.resolutionType ?? "admin",
+    resolutionNote,
+    ...(internalNote ? { internalNote } : {}),
+  });
+  return { dispute: toDisputeView(result.dispute, { includeInternal: true }), trade: result.trade };
+}
+
+async function applyResolution(
+  id,
+  { outcome, faultUserId, resolvedBy, resolutionType, resolutionNote, internalNote },
+  extraMatch = {},
+) {
   const { dispute, trade } = await withTransaction(async (session) => {
     const resolved = await Dispute.findOneAndUpdate(
-      { _id: id, status: "open" },
+      { _id: id, status: "open", ...extraMatch },
       {
         $set: {
           status: "resolved",
-          outcome: body.outcome,
+          outcome,
           faultUserId,
-          resolvedBy: actor._id,
+          resolvedBy,
+          resolutionType,
           resolutionNote,
+          ...(internalNote !== undefined ? { internalNote } : {}),
           resolvedAt: new Date(),
         },
       },
@@ -134,9 +153,9 @@ async function resolveDispute(disputeId, actor, body = {}) {
     const base = { _id: resolved.tradeId, disputeId: resolved._id };
     let trade = null;
 
-    if (body.outcome === "complete") {
+    if (outcome === "complete") {
       trade = await completeTradeInSession(base, session, { disputeId: null });
-    } else if (body.outcome === "cancel") {
+    } else if (outcome === "cancel") {
       const before = await Trade.findOneAndUpdate(
         { ...base, status: { $in: ["active", "completed"] } },
         { $set: { status: "cancelled", disputeId: null } },
@@ -165,8 +184,38 @@ async function resolveDispute(disputeId, actor, body = {}) {
     return { dispute: resolved, trade };
   });
 
-  if (trade && body.outcome === "complete" && trade.status === "completed") await afterCompletion(trade);
-  return { dispute: toDisputeView(dispute), trade: trade ? toTradeView(trade) : null };
+  if (trade && outcome === "complete" && trade.status === "completed") await afterCompletion(trade);
+  return { dispute, trade: trade ? toTradeView(trade) : null };
+}
+
+async function loadPartyDispute(disputeId, userId) {
+  const id = toObjectId(disputeId, "dispute_not_found");
+  const existing = await Dispute.findById(id).lean();
+  if (!existing) throw httpError(404, "dispute_not_found");
+  if (![String(existing.raisedBy), String(existing.against)].includes(String(userId))) {
+    throw httpError(403, "access_denied");
+  }
+  return existing;
+}
+
+// Admin closes the dispute as settled between the parties: no confirmation needed, no one at fault
+async function mutualResolveDispute(disputeId, actor, body = {}) {
+  if (!actor.isAdmin) throw httpError(403, "access_denied");
+  const id = toObjectId(disputeId, "dispute_not_found");
+  const outcome = body.outcome === undefined ? "dismissed" : body.outcome;
+  if (!DISPUTE_OUTCOMES.includes(outcome)) throw httpError(400, "dispute_outcome_invalid");
+  const resolutionNote = textOrEmpty(body.resolutionNote, 2000, "resolution_note_too_long");
+  const internalNote = textOrEmpty(body.internalNote, 2000, "internal_note_too_long");
+
+  const result = await applyResolution(id, {
+    outcome,
+    faultUserId: null,
+    resolvedBy: actor._id,
+    resolutionType: "mutual",
+    resolutionNote,
+    ...(internalNote ? { internalNote } : {}),
+  });
+  return { dispute: toDisputeView(result.dispute, { includeInternal: true }), trade: result.trade };
 }
 
 const USER_FIELDS = { _id: 1, name: 1, email: 1, profileIcon: 1 };
@@ -202,6 +251,7 @@ async function getDisputes(req, filter = {}) {
   }
   if (query.outcome === "none") filters.outcome = null;
   else if (DISPUTE_OUTCOMES.includes(query.outcome)) filters.outcome = query.outcome;
+  if (query.escalated === "true") filters.escalatedAt = { $ne: null };
   const narrow = Object.keys(filters).length ? [{ $match: filters }] : [];
   const userLookup = (field) => [
     {
@@ -215,7 +265,40 @@ async function getDisputes(req, filter = {}) {
     },
     { $unwind: { path: `$${field}User`, preserveNullAndEmptyArrays: true } },
   ];
-
+  const tradeLookup = (field) => [
+    {
+      $lookup: {
+        from: "trades",
+        localField: field,
+        foreignField: "_id",
+        pipeline: [
+          {
+            $lookup: {
+              from: "drops",
+              localField: "dropId",
+              foreignField: "_id",
+              pipeline: [{ $project: { needText: 1, offerText: 1, status: 1, areaLabel: 1 } }],
+              as: "dropIdDrop",
+            },
+          },
+          { $unwind: { path: "$dropIdDrop", preserveNullAndEmptyArrays: true } },
+          {
+            $lookup: {
+              from: "tapins",
+              localField: "tapInId",
+              foreignField: "_id",
+              pipeline: [{ $project: { yourOffer: 1, status: 1 } }],
+              as: "tapInIdTapIn",
+            },
+          },
+          { $unwind: { path: "$tapInIdTapIn", preserveNullAndEmptyArrays: true } },
+          { $project: { dropIdDrop: 1, tapInIdTapIn: 1, status: 1, kind: 1, tradeCode: 1, _id: 1 } },
+        ],
+        as: `${field}Trade`,
+      },
+    },
+    { $unwind: { path: `$${field}Trade`, preserveNullAndEmptyArrays: true } },
+  ];
   const [result] = await Dispute.aggregate([
     { $match: base },
     {
@@ -227,6 +310,7 @@ async function getDisputes(req, filter = {}) {
           { $limit: limit },
           ...userLookup("raisedBy"),
           ...userLookup("against"),
+          ...tradeLookup("tradeId"),
         ],
         total: [...narrow, { $count: "count" }],
         status: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
@@ -236,7 +320,6 @@ async function getDisputes(req, filter = {}) {
       },
     },
   ]);
-
   const total = result?.total?.[0]?.count || 0;
   const countOf = (s, field) => result?.[field]?.find((x) => x._id === s)?.count || 0;
   const meta = generateMeta(page, limit, total);
@@ -247,7 +330,7 @@ async function getDisputes(req, filter = {}) {
   }
 
   const data = (result?.items || []).map((d) => ({
-    ...toDisputeView(d),
+    ...toDisputeView({ ...d, tradeId: d.tradeIdTrade || d.tradeId }, { includeInternal: actor.isAdmin }),
     raisedBy: partyView(d.raisedByUser, d.raisedBy),
     against: partyView(d.againstUser, d.against),
   }));
@@ -270,6 +353,7 @@ module.exports = {
   raiseDispute,
   respondDispute,
   resolveDispute,
-  getDispute,
+  mutualResolveDispute,
   getDisputes,
+  getDispute,
 };

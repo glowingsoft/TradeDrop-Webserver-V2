@@ -158,6 +158,7 @@ function toTradeView(t) {
   const side = (s) => ({ doneAt: s?.doneAt || null, proof: s?.proof ? getFullImageUrl(s.proof) : "" });
   return {
     _id: idStr(t._id),
+    tradeCode: t.tradeCode || null,
     tapInId: idStr(t.tapInId),
     dropId: idStr(t.dropId),
     dropOwnerId: idStr(t.dropOwnerId),
@@ -174,10 +175,10 @@ function toTradeView(t) {
   };
 }
 
-function toDisputeView(d) {
-  return {
+function toDisputeView(d, { includeInternal = false } = {}) {
+  const view = {
     _id: idStr(d._id),
-    tradeId: idStr(d.tradeId),
+    tradeId: d.tradeId,
     raisedBy: idStr(d.raisedBy),
     against: idStr(d.against),
     reason: d.reason,
@@ -189,13 +190,18 @@ function toDisputeView(d) {
     respondedAt: d.respondedAt || null,
     status: d.status,
     outcome: d.outcome || null,
+    escalatedAt: d.escalatedAt || null,
+    escalatedBy: idStrOrNull(d.escalatedBy),
     faultUserId: idStrOrNull(d.faultUserId),
     resolvedBy: idStrOrNull(d.resolvedBy),
+    resolutionType: d.resolutionType || null,
     resolutionNote: d.resolutionNote || "",
     resolvedAt: d.resolvedAt || null,
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,
   };
+  if (includeInternal) view.internalNote = d.internalNote || "";
+  return view;
 }
 
 async function parseDropContent(body = {}) {
