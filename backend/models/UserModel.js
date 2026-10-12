@@ -308,6 +308,8 @@ const userSchema = new mongoose.Schema(
     stats: {
       disputesLost: { type: Number, default: 0 },
     },
+    // Bumped inside transactions to serialize active-trade limit checks per user
+    tradeLock: { type: Number, default: 0 },
     deletedAt: {
       type: Date,
       default: null,

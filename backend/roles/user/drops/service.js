@@ -16,6 +16,12 @@ const {
   publicDropFilter,
   toDropView,
   parseDropContent,
+  parseExpiration,
+  parseOptionalDate,
+  parseLocationType,
+  assertTimeRange,
+  assertTradeCapacity,
+  stringArray,
   loadOwner,
 } = require("../_shared/tradeShared");
 
@@ -30,13 +36,22 @@ async function createDrop(userId, body = {}) {
   });
   if (duplicate) throw httpError(409, "drop_already_exists");
 
-  const drop = await Drop.create({
-    ...content,
-    ownerId: userId,
-    ownerHandle: owner.handle || "",
-    kind: "drop",
-    visibility: "public",
-    status: "open",
+  const drop = await withTransaction(async (session) => {
+    await assertTradeCapacity([userId], session);
+    const [created] = await Drop.create(
+      [
+        {
+          ...content,
+          ownerId: userId,
+          ownerHandle: owner.handle || "",
+          kind: "drop",
+          visibility: "public",
+          status: "open",
+        },
+      ],
+      { session },
+    );
+    return created;
   });
 
   await createActivity({ type: activityTypes.NEW_DROP, user: userId, drop: drop._id }).catch(() => null);
@@ -53,6 +68,28 @@ async function patchDrop(userId, dropId, body = {}) {
     if (body[field] === undefined) continue;
     if (!String(body[field]).trim()) throw httpError(400, key);
     set[field] = String(body[field]).trim();
+  }
+  if (body.concept !== undefined) {
+    const concept = String(body.concept).trim();
+    if (!concept) throw httpError(400, "concept_required");
+    if (concept.length > 120) throw httpError(400, "concept_too_long");
+    set.concept = concept;
+  }
+  if (body.locationType !== undefined) set.locationType = parseLocationType(body.locationType || undefined);
+  if (body.referenceImages !== undefined) {
+    set.referenceImages = stringArray(body.referenceImages, 10, "reference_images_invalid");
+  }
+  if (body.expiresIn !== undefined || body.expiration !== undefined) {
+    set.expiresAt = parseExpiration(body.expiresIn ?? body.expiration);
+  }
+  if (body.startTime !== undefined || body.endTime !== undefined) {
+    const current = await Drop.findById(id).select("startTime endTime").lean();
+    const startTime =
+      body.startTime !== undefined ? parseOptionalDate(body.startTime, "start_time_invalid") : current?.startTime;
+    const endTime = body.endTime !== undefined ? parseOptionalDate(body.endTime, "end_time_invalid") : current?.endTime;
+    assertTimeRange(startTime, endTime);
+    if (body.startTime !== undefined) set.startTime = startTime;
+    if (body.endTime !== undefined) set.endTime = endTime;
   }
   if (body.detail !== undefined) {
     if (String(body.detail).length > 500) throw httpError(400, "detail_too_long");
@@ -188,13 +225,13 @@ async function listMyDrops(userId, req) {
   };
 }
 
-async function getAllDrops(req) {
+async function getAllDrops(req, { extraConditions = [] } = {}) {
   const { page, limit } = parsePaginationParams(req);
   const { keyword, needCategoryId, offerCategoryId, areaLabel, ownerId, timingChip, lat, lng, tag, notme, kind } =
     req.query;
 
   const match = publicDropFilter();
-  const and = [];
+  const and = [...extraConditions];
   if (notme === "true" && req.user?._id) match.ownerId = { $ne: new mongoose.Types.ObjectId(req.user._id) };
   if (needCategoryId && mongoose.isValidObjectId(needCategoryId)) {
     match.needCategoryId = new mongoose.Types.ObjectId(needCategoryId);
@@ -260,10 +297,29 @@ async function getAllDrops(req) {
               offerCategory: { $first: "$offerCategory" },
               owner: { $first: "$owner" },
               timingChip: { $first: "$timingChipDetails" },
+              referenceImages: {
+                $map: {
+                  input: { $ifNull: ["$referenceImages", []] },
+                  as: "img",
+                  in: {
+                    $cond: [
+                      { $regexMatch: { input: "$$img", regex: /^http/ } },
+                      "$$img",
+                      { $concat: [process.env.S3_BASE_URL || "", "$$img"] },
+                    ],
+                  },
+                },
+              },
             },
           },
           {
             $project: {
+              concept: 1,
+              locationType: 1,
+              referenceImages: 1,
+              startTime: 1,
+              endTime: 1,
+              expiresAt: 1,
               ownerId: 1,
               ownerHandle: 1,
               owner: 1,

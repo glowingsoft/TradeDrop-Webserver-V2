@@ -101,8 +101,14 @@ module.exports = {
       },
       DropCreateBody: {
         type: "object",
-        required: ["needText", "offerText", "needCategoryId", "offerCategoryId", "timingChip", "areaLabel"],
+        required: ["concept", "needText", "offerText", "needCategoryId", "offerCategoryId", "timingChip", "areaLabel"],
         properties: {
+          concept: { type: "string", maxLength: 120 },
+          locationType: { type: "string", enum: ["neighborhood", "specific", "remote"] },
+          referenceImages: { type: "array", items: { type: "string" }, maxItems: 10 },
+          startTime: { type: "string", format: "date-time", nullable: true },
+          endTime: { type: "string", format: "date-time", nullable: true },
+          expiresIn: { type: "string", example: "24h", description: "24h, 3days, 1week (max 365 days)" },
           needText: { type: "string" },
           offerText: { type: "string" },
           needCategoryId: { type: "string" },

@@ -18,6 +18,70 @@ const DISPUTE_PRIORITIES = ["low", "medium", "high", "urgent"];
 const DISPUTE_STATUSES = ["open", "resolved"];
 const DISPUTE_OUTCOMES = ["complete", "cancel", "dismissed"];
 
+const MAX_ACTIVE_TRADES = 2;
+const MAX_EXPIRATION_DAYS = 365;
+const LOCATION_TYPES = ["neighborhood", "specific", "remote"];
+const EXPIRATION_UNIT_MS = {
+  h: 3600000,
+  hr: 3600000,
+  hrs: 3600000,
+  hour: 3600000,
+  hours: 3600000,
+  d: 86400000,
+  day: 86400000,
+  days: 86400000,
+  w: 604800000,
+  week: 604800000,
+  weeks: 604800000,
+};
+
+// "24h" | "3days" | "1 week" -> Date, empty -> null
+function parseExpiration(value, now = new Date()) {
+  if (value === undefined || value === null || value === "") return null;
+  const m = /^(\d+)\s*([a-z]+)$/.exec(String(value).trim().toLowerCase());
+  const unit = m && EXPIRATION_UNIT_MS[m[2]];
+  const amount = m ? Number(m[1]) : 0;
+  if (!unit || amount < 1 || amount * unit > MAX_EXPIRATION_DAYS * 86400000) throw httpError(400, "expiration_invalid");
+  return new Date(now.getTime() + amount * unit);
+}
+
+function parseOptionalDate(value, key) {
+  if (value === undefined || value === null || value === "") return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) throw httpError(400, key);
+  return d;
+}
+
+function parseLocationType(value) {
+  if (value === undefined || value === null || value === "") return "neighborhood";
+  if (!LOCATION_TYPES.includes(value)) throw httpError(400, "location_type_invalid");
+  return value;
+}
+
+function assertTimeRange(startTime, endTime) {
+  if (startTime && endTime && endTime <= startTime) throw httpError(400, "time_range_invalid");
+}
+
+function activeTradeFilter(userId) {
+  return { status: "active", $or: [{ requesterId: userId }, { responderId: userId }] };
+}
+
+// Writing to each user doc makes concurrent transactions conflict and retry, so counts can't race past the limit
+async function assertTradeCapacity(userIds, session, { selfId = null } = {}) {
+  const ids = [...new Set(userIds.map(String))].sort();
+  await User.updateMany({ _id: { $in: ids } }, { $inc: { tradeLock: 1 } }, { session, timestamps: false });
+  for (const id of ids) {
+    const count = await Trade.countDocuments(activeTradeFilter(id)).session(session);
+    if (count >= MAX_ACTIVE_TRADES) {
+      throw httpError(409, selfId && String(selfId) !== id ? "other_user_active_trade_limit" : "active_trade_limit_reached");
+    }
+  }
+}
+
+function dropExpiredFilter(now = new Date()) {
+  return { $or: [{ expiresAt: null }, { expiresAt: { $exists: false } }, { expiresAt: { $gt: now } }] };
+}
+
 async function withTransaction(fn) {
   const session = await mongoose.startSession();
   try {
@@ -50,9 +114,9 @@ function roundCoord(value) {
 function publicDropFilter(now = new Date()) {
   return {
     visibility: "public",
-    status: "open",
+    // status: "open",
     deletedAt: null,
-    $or: [{ date: null }, { date: { $gte: now } }],
+    // $or: [{ date: null }, { date: { $gte: now } }],
   };
 }
 
@@ -73,6 +137,7 @@ function dropStatusLabel(drop, trade, now = new Date()) {
   if (drop.deletedAt) return "Deleted";
   if (trade?.status === "completed") return "Completed";
   if (trade?.status === "active") return "In progress";
+  if (drop.status === "open" && drop.expiresAt && new Date(drop.expiresAt) < now) return "Expired";
   if (drop.status === "open" && drop.date && new Date(drop.date) < now) return "Expired";
   return "Open";
 }
@@ -117,6 +182,12 @@ function toDropView(drop, viewerId = null, { trade = null } = {}) {
     targetUserId: idStrOrNull(drop.targetUserId),
     needText: drop.needText,
     offerText: drop.offerText,
+    concept: drop.concept || "",
+    locationType: drop.locationType || "neighborhood",
+    referenceImages: (drop.referenceImages || []).map((m) => getFullImageUrl(m)),
+    startTime: drop.startTime || null,
+    endTime: drop.endTime || null,
+    expiresAt: drop.expiresAt || null,
     needCategoryId: idStr(drop.needCategoryId),
     offerCategoryId: idStr(drop.offerCategoryId),
     timingChip: drop.timingChip?.value ?? idStr(drop.timingChip),
@@ -207,6 +278,8 @@ function toDisputeView(d, { includeInternal = false } = {}) {
 async function parseDropContent(body = {}) {
   const { needText, offerText, needCategoryId, offerCategoryId, timingChip, areaLabel, detail, date, lat, lng } = body;
 
+  if (!body.concept || !String(body.concept).trim()) throw httpError(400, "concept_required");
+  if (String(body.concept).trim().length > 120) throw httpError(400, "concept_too_long");
   if (!needText || !String(needText).trim()) throw httpError(400, "need_text_required");
   if (!offerText || !String(offerText).trim()) throw httpError(400, "offer_text_required");
   if (!mongoose.isValidObjectId(needCategoryId) || !mongoose.isValidObjectId(offerCategoryId)) {
@@ -224,7 +297,16 @@ async function parseDropContent(body = {}) {
   if (date && Number.isNaN(new Date(date).getTime())) throw httpError(400, "date_invalid");
 
   const hasGeo = lat != null && lng != null && !Number.isNaN(Number(lat)) && !Number.isNaN(Number(lng));
+  const startTime = parseOptionalDate(body.startTime, "start_time_invalid");
+  const endTime = parseOptionalDate(body.endTime, "end_time_invalid");
+  assertTimeRange(startTime, endTime);
   return {
+    concept: String(body.concept).trim(),
+    locationType: parseLocationType(body.locationType),
+    referenceImages: stringArray(body.referenceImages, 10, "reference_images_invalid"),
+    startTime,
+    endTime,
+    expiresAt: parseExpiration(body.expiresIn ?? body.expiration),
     needText: String(needText).trim(),
     offerText: String(offerText).trim(),
     needCategoryId: String(needCategoryId),
@@ -307,6 +389,13 @@ module.exports = {
   toTradeView,
   toDisputeView,
   parseDropContent,
+  parseExpiration,
+  parseOptionalDate,
+  parseLocationType,
+  assertTimeRange,
+  assertTradeCapacity,
+  dropExpiredFilter,
+  MAX_ACTIVE_TRADES,
   loadOwner,
   loadTrade,
   requireParty,

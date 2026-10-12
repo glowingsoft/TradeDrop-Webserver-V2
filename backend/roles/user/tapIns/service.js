@@ -13,6 +13,8 @@ const {
   toObjectId,
   escapeRegex,
   publicDropFilter,
+  assertTradeCapacity,
+  dropExpiredFilter,
   textOrEmpty,
   stringArray,
   userBrief,
@@ -92,6 +94,7 @@ async function tapIn(userId, dropId, body = {}) {
   const id = toObjectId(dropId, "drop_not_found");
   const drop = await Drop.findOne({ _id: id, ...publicDropFilter() }).lean();
   if (!drop) throw httpError(404, "drop_not_found");
+  if (drop.expiresAt && new Date(drop.expiresAt) <= new Date()) throw httpError(409, "drop_expired");
   if (String(drop.ownerId) === String(userId)) throw httpError(403, "cannot_tap_own_drop");
   if (await isBlockedBetween(userId, drop.ownerId)) throw httpError(403, "user_blocked");
 
@@ -172,13 +175,21 @@ async function acceptTapIn(userId, tapInId) {
       throw httpError(409, "invalid_status_transition");
     }
 
+    await assertTradeCapacity([accepted.responderId, accepted.requesterId], session, { selfId: userId });
+
     // Closing the drop first makes concurrent accepts on the same drop conflict
     const drop = await Drop.findOneAndUpdate(
-      { _id: accepted.dropId, status: "open", deletedAt: null },
+      { _id: accepted.dropId, status: "open", deletedAt: null, ...dropExpiredFilter() },
       { $set: { status: "closed" } },
       { new: true, session },
     ).lean();
-    if (!drop) throw httpError(409, "drop_not_open");
+    if (!drop) {
+      const existing = await Drop.findById(accepted.dropId).session(session).lean();
+      if (existing?.status === "open" && !existing.deletedAt && existing.expiresAt && existing.expiresAt <= new Date()) {
+        throw httpError(409, "drop_expired");
+      }
+      throw httpError(409, "drop_not_open");
+    }
 
     await TapIn.updateMany(
       { dropId: accepted.dropId, _id: { $ne: accepted._id }, status: "pending", deletedAt: null },
