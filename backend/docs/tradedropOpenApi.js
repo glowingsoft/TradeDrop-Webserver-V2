@@ -417,8 +417,49 @@ module.exports = {
       },
       patch: {
         tags: ["Profile"],
-        summary: "Update profile (API-021)",
+        summary: "Update profile, avatar, or onboarding (API-021)",
         security: [{ bearerAuth: [] }],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  bio: { type: "string" },
+                  avatarUrl: { type: "string" },
+                  imageUrl: { type: "string", description: "Alias for avatarUrl" },
+                  onboarding: {
+                    oneOf: [
+                      { type: "boolean", enum: [true] },
+                      {
+                        type: "object",
+                        description: "Onboarding fields; may include crafts, skipped, or drop details",
+                        properties: {
+                          crafts: { type: "array", items: { type: "string" } },
+                          skipped: { type: "boolean" },
+                          needText: { type: "string" },
+                          offerText: { type: "string" },
+                          needCategoryId: { type: "string" },
+                          offerCategoryId: { type: "string" },
+                          areaLabel: { type: "string" },
+                          lat: { type: "number" },
+                          lng: { type: "number" },
+                          date: { type: "string", format: "date-time" },
+                          timingChip: { type: "string" },
+                          availableDates: { type: "array", items: { type: "string" } },
+                          detail: { type: "string" },
+                          usageRights: { type: "string" },
+                          media: { type: "array", items: { type: "string" } },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
         responses: { 200: { description: "Updated" }, 409: { description: "Duplicate handle" } },
       },
       delete: {
@@ -426,33 +467,6 @@ module.exports = {
         summary: "Soft-delete account (API-028)",
         security: [{ bearerAuth: [] }],
         responses: { 200: { description: "Deleted" } },
-      },
-    },
-    "/me/avatar": {
-      post: {
-        tags: ["Profile"],
-        summary: "Set avatar URL (API-022)",
-        security: [{ bearerAuth: [] }],
-        requestBody: {
-          content: {
-            "application/json": {
-              schema: {
-                type: "object",
-                required: ["imageUrl"],
-                properties: { imageUrl: { type: "string" } },
-              },
-            },
-          },
-        },
-        responses: { 200: { description: "Avatar set" } },
-      },
-    },
-    "/me/onboarding": {
-      post: {
-        tags: ["Profile"],
-        summary: "Complete onboarding (API-023)",
-        security: [{ bearerAuth: [] }],
-        responses: { 200: { description: "Onboarding complete" } },
       },
     },
     "/me/portfolio": {

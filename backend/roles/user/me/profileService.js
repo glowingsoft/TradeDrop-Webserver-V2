@@ -176,6 +176,13 @@ async function patchMe(userId, body = {}) {
     if (bio.length > MAX_BIO) throw AppError("bio_too_long", 400);
     patch.bio = bio;
   }
+  const avatarUrl = body.avatarUrl !== undefined ? body.avatarUrl : body.imageUrl;
+  if (avatarUrl !== undefined) {
+    if (!avatarUrl || typeof avatarUrl !== "string") {
+      throw AppError("avatar_url_required", 400);
+    }
+    patch.avatarUrl = avatarUrl.trim();
+  }
   if (body.timezone !== undefined) patch.timezone = String(body.timezone);
   if (body.language !== undefined) patch.language = String(body.language);
   if (body.areaLabel !== undefined) patch.areaLabel = String(body.areaLabel);
@@ -196,14 +203,9 @@ async function patchMe(userId, body = {}) {
     }));
   }
 
-  if (body.prompts !== undefined) {
-    if (!Array.isArray(body.prompts)) throw AppError("prompts_invalid", 400);
-    if (body.prompts.length > MAX_PROMPTS) throw AppError("prompts_max", 400);
-    patch.prompts = body.prompts.map((p) => {
-      const s = String(p);
-      if (s.length > MAX_PROMPT_LEN) throw AppError("prompt_too_long", 400);
-      return s;
-    });
+  if (body.crafts !== undefined) {
+    if (!Array.isArray(body.crafts)) throw AppError("crafts_invalid", 400);
+    patch.crafts = body.crafts.map(String);
   }
 
   if (body.handle !== undefined) {
@@ -216,125 +218,106 @@ async function patchMe(userId, body = {}) {
     patch.handle = handle;
   }
 
-  const updated = await repo.update(user._id, patch);
-  return selfProfile(updated);
-}
-
-async function setAvatar(userId, imageUrl) {
-  if (!imageUrl || typeof imageUrl !== "string") {
-    throw AppError("avatar_url_required", 400);
+  const onboardingObject =
+    body.onboarding !== null && typeof body.onboarding === "object" && !Array.isArray(body.onboarding);
+  const onboardingRequested = body.onboarding === true || onboardingObject;
+  if (
+    body.onboarding !== undefined &&
+    body.onboarding !== null &&
+    body.onboarding !== false &&
+    !onboardingRequested
+  ) {
+    throw AppError("onboarding_invalid", 400);
   }
-  const user = await requireUser(userId);
-  const updated = await repo.update(user._id, { avatarUrl: imageUrl.trim() });
-  return selfProfile(updated);
-}
+  let onboardingDrop;
 
-async function completeOnboarding(userId, body = {}) {
-  const user = await requireUser(userId);
+  if (onboardingRequested) {
+    if (user.verificationStatus?.email !== "verified") throw AppError("email_unverified", 403);
+    if (user.onboarding) throw AppError("onboarding_already_completed", 400);
 
-  if (user.verificationStatus?.email !== "verified") throw AppError("email_unverified", 403);
+    const onboardingBody = onboardingObject ? { ...body, ...body.onboarding } : body;
 
-  if (user.onboarding) throw AppError("onboarding_already_completed", 400);
-
-  // Resolve crafts
-  const categories = await catalogRepo.listCategories();
-  const categoryMap = new Map();
-
-  categories.forEach((c) => {
-    categoryMap.set(String(c._id), String(c._id));
-    categoryMap.set(c.slug, String(c._id));
-  });
-
-  const resolveCategoryRef = (ref) => categoryMap.get(String(ref)) || String(ref);
-
-  let craftIds = user.crafts || [];
-
-  // Add/update crafts first
-  if (Array.isArray(body.crafts)) {
-    craftIds = body.crafts.map(resolveCategoryRef);
-
-    if (!craftIds.length) throw AppError("crafts_required", 400);
-
-    await repo.update(user._id, { crafts: craftIds });
-    return selfProfile(await repo.update(user._id, { crafts: craftIds }));
-  }
-
-  // Crafts required
-  if (!craftIds.length) throw AppError("crafts_required", 400);
-
-  // Skip after crafts are saved
-  if (body.skipped === true) {
-    const updated = await repo.update(user._id, {
-      onboarding: true,
-      crafts: craftIds,
+    const categories = await catalogRepo.listCategories();
+    const categoryMap = new Map();
+    categories.forEach((category) => {
+      categoryMap.set(String(category._id), String(category._id));
+      categoryMap.set(category.slug, String(category._id));
     });
+    const resolveCategoryRef = (ref) => categoryMap.get(String(ref)) || String(ref);
 
-    return selfProfile(updated);
+    let craftIds = user.crafts || [];
+    if (Array.isArray(onboardingBody.crafts)) {
+      craftIds = onboardingBody.crafts.map(resolveCategoryRef);
+      if (!craftIds.length) throw AppError("crafts_required", 400);
+    } else if (!craftIds.length) {
+      throw AppError("crafts_required", 400);
+    }
+    patch.crafts = craftIds;
+
+    const hasDropDetails = [
+      "needText",
+      "offerText",
+      "needCategoryId",
+      "offerCategoryId",
+      "areaLabel",
+      "lat",
+      "lng",
+      "date",
+    ].some((field) => onboardingBody[field] !== undefined);
+
+    if (onboardingBody.skipped === true) {
+      patch.onboarding = true;
+    } else if (!Array.isArray(onboardingBody.crafts) || hasDropDetails) {
+      const {
+        needText,
+        offerText,
+        needCategoryId,
+        offerCategoryId,
+        areaLabel,
+        timingChip,
+        availableDates,
+        detail,
+        usageRights,
+        media,
+        lat,
+        lng,
+        date,
+      } = onboardingBody;
+
+      if (!needText || !offerText || !needCategoryId || !offerCategoryId) {
+        throw AppError("onboarding_fields_required", 400);
+      }
+      if (lat === null || lat === undefined || lat === "") throw AppError("lat_required", 400);
+      if (lng === null || lng === undefined || lng === "") throw AppError("lng_required", 400);
+      if (String(needText).length > MAX_NEED) throw AppError("need_text_too_long", 400);
+      if (!areaLabel) throw AppError("area_label_required", 400);
+      if (!date) throw AppError("date_required", 400);
+
+      onboardingDrop = await Drop.create({
+        ownerId: user._id,
+        ownerHandle: user.handle || "",
+        needText: String(needText).trim(),
+        offerText: String(offerText).trim(),
+        needCategoryId: resolveCategoryRef(needCategoryId),
+        offerCategoryId: resolveCategoryRef(offerCategoryId),
+        timingChip,
+        availableDates: Array.isArray(availableDates) ? availableDates : [],
+        areaLabel: String(areaLabel).trim(),
+        lat: Number(lat),
+        lng: Number(lng),
+        detail: detail ? String(detail).trim() : "",
+        usageRights: usageRights ? String(usageRights).trim() : "",
+        media: Array.isArray(media) ? media.map(String) : [],
+        status: "open",
+        date: new Date(date),
+      });
+      patch.onboarding = true;
+    }
   }
 
-  // Drop data
-  const {
-    needText,
-    offerText,
-    needCategoryId,
-    offerCategoryId,
-    areaLabel,
-    timingChip,
-    availableDates,
-    detail,
-    usageRights,
-    media,
-    lat,
-    lng,
-    date,
-  } = body;
-
-  if (!needText || !offerText || !needCategoryId || !offerCategoryId) throw AppError("onboarding_fields_required", 400);
-
-  if (lat === null || lat === undefined || lat === "") throw AppError("lat_required", 400);
-  if (lng === null || lng === undefined || lng === "") throw AppError("lng_required", 400);
-
-  if (String(needText).length > MAX_NEED) throw AppError("need_text_too_long", 400);
-
-  if (!areaLabel) throw AppError("area_label_required", 400);
-
-  if (!date) throw AppError("date_required", 400);
-
-  const needId = resolveCategoryRef(needCategoryId);
-  const offerId = resolveCategoryRef(offerCategoryId);
-
-  const cleanArea = String(areaLabel).trim();
-  const normalizedLat = lat === null || lat === undefined || lat === "" ? null : Number(lat);
-  const normalizedLng = lng === null || lng === undefined || lng === "" ? null : Number(lng);
-
-  const drop = await Drop.create({
-    ownerId: user._id,
-    ownerHandle: user.handle || "",
-    needText: String(needText).trim(),
-    offerText: String(offerText).trim(),
-    needCategoryId: needId,
-    offerCategoryId: offerId,
-    timingChip,
-    availableDates: Array.isArray(availableDates) ? availableDates : [],
-    areaLabel: cleanArea,
-    lat: normalizedLat,
-    lng: normalizedLng,
-    detail: detail ? String(detail).trim() : "",
-    usageRights: usageRights ? String(usageRights).trim() : "",
-    media: Array.isArray(media) ? media.map(String) : [],
-    status: "open",
-    date: date ? new Date(date) : new Date(),
-  });
-
-  const updated = await repo.update(user._id, {
-    crafts: craftIds,
-    onboarding: true,
-  });
-
-  return {
-    profile: selfProfile(updated),
-    drop,
-  };
+  const updated = await repo.update(user._id, patch);
+  if (onboardingDrop) return { profile: selfProfile(updated), drop: onboardingDrop };
+  return selfProfile(updated);
 }
 
 async function addPortfolioItem(userId, body = {}) {
@@ -460,8 +443,6 @@ module.exports = {
   getMe,
   addCraft,
   patchMe,
-  setAvatar,
-  completeOnboarding,
   addPortfolioItem,
   deletePortfolioItem,
   patchPrivacy,

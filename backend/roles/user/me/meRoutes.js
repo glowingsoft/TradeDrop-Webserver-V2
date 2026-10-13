@@ -5,8 +5,6 @@ const {
   getMe,
   patchMe,
   postCraft,
-  postAvatar,
-  postOnboarding,
   postPortfolio,
   deletePortfolio,
   patchPrivacy,
@@ -27,8 +25,6 @@ router.get("/announcements", getUserAnnouncements);
 router.patch("/announcements/:id/read", readAnnouncement);
 router.patch("/", patchMe);
 router.post("/crafts", postCraft);
-router.post("/avatar", postAvatar);
-router.post("/onboarding", postOnboarding);
 router.post("/portfolio", postPortfolio);
 router.delete("/portfolio/:id", deletePortfolio);
 router.patch("/privacy", patchPrivacy);
