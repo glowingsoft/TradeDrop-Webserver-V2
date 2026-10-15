@@ -208,14 +208,14 @@ async function collaboratorsForUser(userId, limit = 12) {
     .lean();
   const otherIds = [...new Set(trades.map((t) => String(otherParty(t, userId))))];
   const users = await User.find({ _id: { $in: otherIds }, deletedAt: null })
-    .select("name handle avatarUrl")
+    .select("name handle profileIcon")
     .lean();
   const byId = new Map(users.map((u) => [String(u._id), u]));
   return otherIds
     .map((id) => byId.get(id))
     .filter(Boolean)
     .slice(0, limit)
-    .map((u) => ({ _id: u._id, handle: u.handle || "", avatarUrl: u.avatarUrl || "", name: u.name || "" }));
+    .map((u) => ({ _id: u._id, handle: u.handle || "", profileIcon: u.profileIcon || "", name: u.name || "" }));
 }
 
 const STATUSES = ["active", "completed", "cancelled"];

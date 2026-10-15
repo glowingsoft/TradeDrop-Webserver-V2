@@ -46,7 +46,7 @@ function publicUser(user, token = null) {
       name: user.name || "",
       email: user.email,
       handle: user.handle || "",
-      avatarUrl: user.avatarUrl || "",
+      profileIcon: user.profileIcon || "",
       language: user.language || "en",
     },
     accountState: {

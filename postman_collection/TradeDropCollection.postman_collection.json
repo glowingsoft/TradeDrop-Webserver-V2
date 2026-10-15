@@ -2380,6 +2380,82 @@
                   "body": "{\n    \"message\": \"Messages fetched successfully\",\n    \"data\": [\n        {\n            \"_id\": \"69e88078730f51d2e1f07e7a\",\n            \"conversationId\": \"69e87cdc22c8b1f916271301\",\n            \"senderId\": \"69df98293cd20323132e090b\",\n            \"messageType\": \"text\",\n            \"messageContent\": \"???\",\n            \"mediaUrl\": null,\n            \"status\": \"sent\",\n            \"replyTo\": null,\n            \"metadata\": {\n                \"attachmentType\": \"\"\n            },\n            \"deletedFor\": [],\n            \"editedAt\": null,\n            \"isDeleted\": false,\n            \"createdAt\": \"2026-04-22T08:02:00.982Z\",\n            \"updatedAt\": \"2026-04-22T08:02:00.982Z\",\n            \"__v\": 0,\n            \"timesince\": \"2 hours ago\",\n            \"isRead\": false\n        },\n        {\n            \"_id\": \"69e87cdc22c8b1f916271305\",\n            \"conversationId\": \"69e87cdc22c8b1f916271301\",\n            \"senderId\": \"69df98293cd20323132e090b\",\n            \"messageType\": \"text\",\n            \"messageContent\": \"Hello! How are you\",\n            \"mediaUrl\": null,\n            \"status\": \"sent\",\n            \"replyTo\": null,\n            \"metadata\": {\n                \"attachmentType\": \"\"\n            },\n            \"deletedFor\": [],\n            \"editedAt\": null,\n            \"isDeleted\": false,\n            \"createdAt\": \"2026-04-22T07:46:36.970Z\",\n            \"updatedAt\": \"2026-04-22T07:46:36.970Z\",\n            \"__v\": 0,\n            \"timesince\": \"2 hours ago\",\n            \"isRead\": false\n        }\n    ],\n    \"meta\": {\n        \"currentPage\": 1,\n        \"totalPages\": 1,\n        \"totalRecords\": 2,\n        \"limit\": 10\n    }\n}"
                 }
               ]
+            },
+            {
+              "name": "Archive Chat",
+              "request": {
+                "method": "PUT",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}app/conversations/{{conversationId}}/action",
+                  "host": [
+                    "{{url}}app/conversations"
+                  ],
+                  "path": [
+                    "{{conversationId}}",
+                    "action"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"archived\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Get Archived Chats",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}app/conversations?chatState=archived&page=1&limit=10",
+                  "host": [
+                    "{{url}}app/conversations"
+                  ],
+                  "path": [],
+                  "query": [
+                    {
+                      "key": "chatState",
+                      "value": "archived"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "response": []
             }
           ],
           "description": "This folder contains the chat-related API endpoints for the application. It includes sending a new message to a chat, retrieving a paginated list of all chat conversations, and fetching the message history for a specific chat filtered by job and object identifiers. These endpoints support pagination through `page` and `limit` query parameters."
@@ -2808,6 +2884,402 @@
                   }
                 },
                 "description": "Only the accused, once."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Message Requests",
+          "item": [
+            {
+              "name": "Create Message Request",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}message-requests",
+                  "host": [
+                    "{{url}}message-requests"
+                  ]
+                },
+                "description": "Send a message request to another user.",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"receiverId\": \"{{targetUserId}}\",\n  \"message\": \"Hello, I would like to connect.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "List Incoming Message Requests",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}message-requests/incoming?page=1&limit=10&status=",
+                  "host": [
+                    "{{url}}message-requests/incoming"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "List Outgoing Message Requests",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}message-requests/outgoing?page=1&limit=10&status=",
+                  "host": [
+                    "{{url}}message-requests/outgoing"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Accept Message Request",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}message-requests/{{messageRequestId}}/accept",
+                  "host": [
+                    "{{url}}message-requests/{{messageRequestId}}/accept"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Reject Message Request",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}message-requests/{{messageRequestId}}/reject",
+                  "host": [
+                    "{{url}}message-requests/{{messageRequestId}}/reject"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Block Message Request",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}message-requests/{{messageRequestId}}/block",
+                  "host": [
+                    "{{url}}message-requests/{{messageRequestId}}/block"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Blocked Users",
+          "item": [
+            {
+              "name": "Block User",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}blocked-users",
+                  "host": [
+                    "{{url}}blocked-users"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"{{targetUserId}}\",\n  \"reason\": \"Not interested\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "List Blocked Users",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}blocked-users?page=1&limit=10",
+                  "host": [
+                    "{{url}}blocked-users"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Unblock User",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}blocked-users/{{targetUserId}}",
+                  "host": [
+                    "{{url}}blocked-users/{{targetUserId}}"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Favorites",
+          "item": [
+            {
+              "name": "Toggle Favorite",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}favorites/toggle",
+                  "host": [
+                    "{{url}}favorites/toggle"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"targetId\": \"{{favoriteTargetId}}\",\n  \"targetType\": \"event\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "List Favorites",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}favorites?page=1&limit=10&targetType=event",
+                  "host": [
+                    "{{url}}favorites"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "targetType",
+                      "value": "event"
+                    }
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Check Favorite Status",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{url}}favorites/event/{{favoriteTargetId}}/status",
+                  "host": [
+                    "{{url}}favorites/event/{{favoriteTargetId}}/status"
+                  ]
+                },
+                "description": "",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                }
               },
               "response": []
             }
@@ -5308,6 +5780,18 @@
       "key": "targetUserId",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "messageRequestId",
+      "value": ""
+    },
+    {
+      "key": "favoriteTargetId",
+      "value": ""
+    },
+    {
+      "key": "conversationId",
+      "value": ""
     }
   ]
 }

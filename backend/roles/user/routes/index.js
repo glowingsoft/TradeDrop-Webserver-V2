@@ -7,9 +7,7 @@ router.use(require("../tapIns/routes"));
 router.use(require("../trades/routes"));
 router.use(require("../disputes/routes"));
 router.use("/me", require("../me/meRoutes"));
-router.use("/users", require("../me/publicProfileRoutes"));
 router.use("/radar", require("../radar/radarRoutes"));
 router.use(require("../catalog/catalogRoutes"));
 
 module.exports = router;
-

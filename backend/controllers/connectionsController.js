@@ -37,7 +37,7 @@ const listConnections = async (req, res) => {
 
     const otherIds = connections.map((c) => otherUserId(c, userId));
     const users = await User.find({ _id: { $in: otherIds } })
-      .select("name handle profileIcon avatarUrl")
+      .select("name handle profileIcon")
       .lean();
     const usersById = new Map(users.map((u) => [String(u._id), u]));
 

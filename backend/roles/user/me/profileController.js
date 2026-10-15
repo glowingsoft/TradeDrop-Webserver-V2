@@ -126,20 +126,6 @@ const deleteMe = async (req, res) => {
   }
 };
 
-const getPublicProfile = async (req, res) => {
-  try {
-    const data = await profileService.getPublicByHandle(req.params.handle);
-    return sendResponse({
-      res,
-      statusCode: 200,
-      translationKey: "public_profile_fetched",
-      data,
-    });
-  } catch (error) {
-    return handleError(res, error);
-  }
-};
-
 module.exports = {
   getMe,
   patchMe,
@@ -149,5 +135,4 @@ module.exports = {
   patchPrivacy,
   postVerification,
   deleteMe,
-  getPublicProfile,
 };

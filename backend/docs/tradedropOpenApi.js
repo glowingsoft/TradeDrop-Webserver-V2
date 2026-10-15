@@ -427,8 +427,8 @@ module.exports = {
                 properties: {
                   name: { type: "string" },
                   bio: { type: "string" },
-                  avatarUrl: { type: "string" },
-                  imageUrl: { type: "string", description: "Alias for avatarUrl" },
+                  profileIcon: { type: "string" },
+                  imageUrl: { type: "string", description: "Alias for profileIcon" },
                   onboarding: {
                     oneOf: [
                       { type: "boolean", enum: [true] },

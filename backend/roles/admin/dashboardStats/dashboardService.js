@@ -161,7 +161,7 @@ async function getDashboardStats({ range, timezone, activityLimit = 8 } = {}) {
   const activityQuery = Activity.find({})
     .sort({ createdAt: -1 })
     .limit(Math.min(Math.max(Number(activityLimit) || 8, 1), 20))
-    .populate("user", "name handle areaLabel avatarUrl profileIcon")
+    .populate("user", "name handle areaLabel profileIcon")
     .populate("drop", "ownerHandle")
     .lean();
   /** * --------------------------------------------------------- * RUN QUERIES * --------------------------------------------------------- * * We still use Promise.allSettled so independent queries * can be diagnosed separately, BUT we no longer silently * turn failures into zeros. */
@@ -263,7 +263,7 @@ async function getDashboardStats({ range, timezone, activityLimit = 8 } = {}) {
             name: activity.user.name || "",
             handle: activity.user.handle || "",
             areaLabel: activity.user.areaLabel || "",
-            avatarUrl: activity.user.avatarUrl || activity.user.profileIcon || "",
+            profileIcon: activity.user.profileIcon || "",
           }
         : null,
       drop: activity.drop ? { _id: activity.drop._id, ownerHandle: activity.drop.ownerHandle || "" } : null,

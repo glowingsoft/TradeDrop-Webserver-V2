@@ -12,7 +12,6 @@ const {
   checkEmailExistsAndVerified,
   changePassword,
   createAdmin,
-  checkUserNameExists,
   hardDeleteAccount,
   generateOtp,
   verifyOtp,
@@ -57,7 +56,6 @@ router.post("/logout", authenticate, tfAuth.logout);
 
 router.post("/internal/admin/create", signupRateLimiter, createAdmin);
 router.post("/check-email-exists", checkEmailExistsAndVerified);
-router.post("/check-userName-exists", checkUserNameExists);
 if (process.env.NODE_ENV || "dev") {
   router.post("/login-test", loginRateLimiterTest, loginTest);
 }

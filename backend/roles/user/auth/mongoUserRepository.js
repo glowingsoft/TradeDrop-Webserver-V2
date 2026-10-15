@@ -16,7 +16,7 @@ function toPublic(doc) {
     handle: o.handle || "",
     timezone: o.timezone || "UTC",
     language: o.language || "en",
-    avatarUrl: o.avatarUrl || o.profileIcon || "",
+    profileIcon: o.profileIcon || "",
     bio: o.bio || "",
     areaLabel: o.areaLabel || "",
     lat: o.lat ?? null,
@@ -45,7 +45,6 @@ function toPublic(doc) {
       title: p.title || "",
       tags: p.tags || [],
       sortOrder: p.sortOrder ?? 0,
-      flagged: !!p.flagged,
     })),
     phoneNumber: o.phoneNumber || { code: "", number: "" },
     createdAt: o.createdAt,
@@ -62,9 +61,6 @@ function patchToMongo(patch = {}) {
   if (patch.otp !== undefined) {
     out.tfOtp = patch.otp;
     delete out.otp;
-  }
-  if (patch.avatarUrl !== undefined && patch.profileIcon === undefined) {
-    out.profileIcon = patch.avatarUrl;
   }
   delete out._id;
   return out;
@@ -100,7 +96,7 @@ async function create(data) {
     handle: data.handle ? String(data.handle).toLowerCase().trim() : undefined,
     timezone: data.timezone || "UTC",
     language: data.language || "en",
-    avatarUrl: data.avatarUrl || "",
+    profileIcon: data.profileIcon || "",
     bio: data.bio || "",
     areaLabel: data.areaLabel || "",
     lat: data.lat ?? null,

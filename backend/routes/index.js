@@ -27,9 +27,6 @@ router.use("/help-center", require("../roles/admin/helpCenter/helpCenterRoutes")
 //users (admin management — JWT)
 router.use("/users", require("../roles/admin/usersManagement/usersRoutes"));
 
-// TradeDrop public profile by handle (before admin /users auth gate)
-router.use("/users", require("../roles/user/me/publicProfileRoutes"));
-
 //notification preferences
 router.use("/notification-preferences", require("./notificationPreferencesRoutes"));
 

@@ -76,7 +76,7 @@ const listBlockedUsers = async (req, res) => {
   try {
     const [items, total] = await Promise.all([
       BlockedUser.find(filter)
-        .populate("blockedUser", "name handle profileIcon avatarUrl")
+        .populate("blockedUser", "name handle profileIcon")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)

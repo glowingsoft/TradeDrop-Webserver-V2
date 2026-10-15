@@ -55,7 +55,7 @@ const listIncoming = async (req, res) => {
   try {
     const [items, total] = await Promise.all([
       MessageRequest.find(filter)
-        .populate("sender", "name handle profileIcon avatarUrl")
+        .populate("sender", "name handle profileIcon")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
@@ -82,7 +82,7 @@ const listOutgoing = async (req, res) => {
   try {
     const [items, total] = await Promise.all([
       MessageRequest.find(filter)
-        .populate("receiver", "name handle profileIcon avatarUrl")
+        .populate("receiver", "name handle profileIcon")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)

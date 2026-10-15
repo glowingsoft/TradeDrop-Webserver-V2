@@ -158,7 +158,7 @@ function userBrief(u) {
     _id: idStr(u._id),
     name: u.name || "",
     handle: u.handle || "",
-    avatarUrl: u.avatarUrl || (u.profileIcon ? getFullImageUrl(u.profileIcon) : ""),
+    profileIcon: u.profileIcon ? getFullImageUrl(u.profileIcon) : "",
   };
 }
 
@@ -166,7 +166,7 @@ async function usersById(ids) {
   const unique = [...new Set(ids.filter(Boolean).map(String))];
   if (!unique.length) return new Map();
   const users = await User.find({ _id: { $in: unique } })
-    .select("name handle avatarUrl profileIcon")
+    .select("name handle profileIcon")
     .lean();
   return new Map(users.map((u) => [String(u._id), u]));
 }

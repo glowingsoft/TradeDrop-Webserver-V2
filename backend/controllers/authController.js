@@ -1389,41 +1389,6 @@ const changePassword = async (req, res) => {
   }
 };
 
-const checkUserNameExists = async (req, res) => {
-  try {
-    const { username } = req.body;
-
-    if (!validateParams(req, res, { rawData: ["username"] })) return;
-
-    const user = await User.findOne({ username: username }).select("_id");
-
-    if (user) {
-      // Username is taken
-      return sendResponse({
-        res,
-        statusCode: 200,
-        translationKey: "username_already_taken",
-        data: { exists: true },
-      });
-    }
-
-    // Username is available
-    return sendResponse({
-      res,
-      statusCode: 200,
-      translationKey: "username_available",
-      data: { exists: false },
-    });
-  } catch (error) {
-    return sendResponse({
-      res,
-      statusCode: 500,
-      translationKey: "internal_server_error",
-      error,
-    });
-  }
-};
-
 module.exports = {
   createAdmin,
   register,
@@ -1442,6 +1407,5 @@ module.exports = {
   socialAuth,
   checkEmailExistsAndVerified,
   changePassword,
-  checkUserNameExists,
   loginTest,
 };

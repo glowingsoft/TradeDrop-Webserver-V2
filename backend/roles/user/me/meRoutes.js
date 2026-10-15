@@ -8,7 +8,6 @@ const {
   postPortfolio,
   deletePortfolio,
   patchPrivacy,
-  postVerification,
   deleteMe,
 } = require("./profileController");
 const {
@@ -28,7 +27,6 @@ router.post("/crafts", postCraft);
 router.post("/portfolio", postPortfolio);
 router.delete("/portfolio/:id", deletePortfolio);
 router.patch("/privacy", patchPrivacy);
-router.post("/verification", postVerification);
 router.delete("/", deleteMe);
 
 /** Gate: verified email + onboardingComplete (checked in service for this probe) */

@@ -77,7 +77,7 @@ function toPin(user) {
     _id: user._id,
     handle: user.handle || "",
     name: user.name || "",
-    avatarUrl: user.avatarUrl || "",
+    profileIcon: user.profileIcon || "",
     bio: user.bio || "",
     areaLabel: user.areaLabel || "",
     lat: roundCoord(user.lat),
@@ -225,7 +225,6 @@ async function listRadar({ req, filter = {}, recent = false }) {
           $project: {
             _id: 1,
             name: 1,
-            username: 1,
             handle: 1,
             profileIcon: { $concat: [process.env.S3_BASE_URL || "", "$profileIcon"] },
             areaLabel: 1,
@@ -288,7 +287,7 @@ async function listConnectionsTab(viewerId, excluded) {
   const connections = await Connection.find(filter).sort({ updatedAt: -1 }).limit(RADAR_TAB_LIMIT).lean();
   const otherId = (c) => (String(c.userA) === String(viewerId) ? c.userB : c.userA);
   const users = await User.find({ _id: { $in: connections.map(otherId) } })
-    .select("name handle profileIcon avatarUrl areaLabel")
+    .select("name handle profileIcon areaLabel")
     .lean();
   const byId = new Map(users.map((u) => [String(u._id), u]));
   return {

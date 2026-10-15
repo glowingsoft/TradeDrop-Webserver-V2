@@ -21,10 +21,6 @@ const userSchema = new mongoose.Schema(
       default: "",
     },
 
-    username: {
-      type: String,
-      default: "",
-    },
     dob: {
       type: String,
       default: "",
@@ -255,10 +251,6 @@ const userSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
-    },
-    avatarUrl: {
-      type: String,
-      default: "",
     },
     bio: {
       type: String,
