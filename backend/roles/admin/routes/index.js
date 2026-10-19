@@ -15,6 +15,5 @@ router.use("/support", require("../support/supportRoutes"));
 router.use("/catalog", require("../catalog/adminCatalogRoutes"));
 router.use("/announcements", require("../announcements/announcementsRoutes"));
 router.use("/badges", require("../badges/badgesRoutes"));
-router.use("/disputes", require("../disputes/disputesRoutes"));
 
 module.exports = router;

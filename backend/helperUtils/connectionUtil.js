@@ -1,4 +1,4 @@
-const Connection = require("../models/Connection");
+﻿const Connection = require("../models/Connection");
 const BlockedUser = require("../models/BlockedUser");
 
 function normalizePair(userA, userB) {
@@ -17,8 +17,7 @@ async function isBlockedBetween(userA, userB) {
 }
 
 async function getConnectionBetween(userA, userB) {
-  const [user1, user2] = normalizePair(userA, userB);
-  return Connection.findOne({ user1, user2 }).lean();
+  return Connection.findOne({ pairKey: Connection.pairKeyFor(userA, userB) }).lean();
 }
 
 async function isActivelyConnected(userA, userB) {
@@ -27,30 +26,27 @@ async function isActivelyConnected(userA, userB) {
 }
 
 /**
- * Creates an active connection between two users if one does not already exist.
- * Uses an atomic upsert (backed by the unique user1+user2 index) so concurrent
- * calls for the same pair cannot create duplicate connections.
+ * Records a completed trade between two users: creates the active connection on
+ * first completion and bumps completedCount. Atomic upsert backed by the unique
+ * pairKey index, so concurrent calls for the same pair cannot create duplicates.
  */
-async function ensureConnection(userA, userB, { tapInId } = {}) {
-  const [user1, user2] = normalizePair(userA, userB);
-  try {
-    return await Connection.findOneAndUpdate(
-      { user1, user2 },
+async function recordCompletedTrade(userA, userB, { session } = {}) {
+  const [a, b] = normalizePair(userA, userB);
+  const pairKey = `${a}_${b}`;
+  const run = () =>
+    Connection.findOneAndUpdate(
+      { pairKey },
       {
-        $setOnInsert: {
-          user1,
-          user2,
-          status: "active",
-          source: { type: "tapIn", tapInId: tapInId || null },
-        },
+        $setOnInsert: { pairKey, userA: a, userB: b, status: "active", source: "trade" },
+        $inc: { completedCount: 1 },
       },
-      { new: true, upsert: true, setDefaultsOnInsert: true },
+      { new: true, upsert: true, session },
     );
+  try {
+    return await run();
   } catch (err) {
-    // Lost the upsert race — the other request already created the connection.
-    if (err && err.code === 11000) {
-      return Connection.findOne({ user1, user2 });
-    }
+    // Lost the upsert race; the document now exists, so the update path applies.
+    if (err && err.code === 11000 && !session) return run();
     throw err;
   }
 }
@@ -60,5 +56,5 @@ module.exports = {
   isBlockedBetween,
   getConnectionBetween,
   isActivelyConnected,
-  ensureConnection,
+  recordCompletedTrade,
 };

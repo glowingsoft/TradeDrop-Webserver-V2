@@ -12,7 +12,6 @@ const {
   checkEmailExistsAndVerified,
   changePassword,
   createAdmin,
-  checkUserNameExists,
   hardDeleteAccount,
   generateOtp,
   verifyOtp,
@@ -45,7 +44,6 @@ const changePasswordRateLimiter = createRateLimiter("changePassword", 15, 10);
 
 /**
  * TradeDrop consumer auth always uses tfAuth controllers.
- * AUTH_REPOSITORY=memory|mongo selects the repository behind them (see authRepository.js).
  */
 router.post("/register", signupRateLimiter, tfAuth.register);
 router.post("/login", loginRateLimiter, tfAuth.login);
@@ -58,7 +56,6 @@ router.post("/logout", authenticate, tfAuth.logout);
 
 router.post("/internal/admin/create", signupRateLimiter, createAdmin);
 router.post("/check-email-exists", checkEmailExistsAndVerified);
-router.post("/check-userName-exists", checkUserNameExists);
 if (process.env.NODE_ENV || "dev") {
   router.post("/login-test", loginRateLimiterTest, loginTest);
 }

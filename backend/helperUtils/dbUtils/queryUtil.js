@@ -298,8 +298,8 @@ function lookupUserRating() {
         from: "reviews",
         let: { userId: "$_id" },
         pipeline: [
-          { $match: { $expr: { $eq: ["$toUserId", "$$userId"] } } },
-          { $group: { _id: null, averageRating: { $avg: "$stars" }, reviewCount: { $sum: 1 } } },
+          { $match: { $expr: { $eq: ["$revieweeId", "$$userId"] } } },
+          { $group: { _id: null, averageRating: { $avg: "$rating" }, reviewCount: { $sum: 1 } } },
           { $project: { _id: 0, averageRating: { $round: ["$averageRating", 1] }, reviewCount: 1 } },
         ],
         as: "rating",

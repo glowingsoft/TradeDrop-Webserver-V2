@@ -12,7 +12,8 @@ const usersService = require("./usersService.js");
 const { registerUserUtility } = require("../../../controllers/authUtil.js");
 const { getFullImageUrl } = require("@helperUtils/imageHelper.js");
 const badgesService = require("../badges/badgesService");
-const { getAllTapInReviews } = require("@backend/roles/user/tapIns/tapInService.js");
+const { getAllReviews: getAllTapInReviews } = require("@backend/roles/user/trades/service.js");
+const Connection = require("@models/Connection");
 
 const createUser = async (req, res) => {
   const result = await registerUserUtility(req, res, {
@@ -212,6 +213,7 @@ const getUserDetails = async (req, res) => {
     let userObject = new User(user).toJSON();
 
     const response = formatUserResponse(userObject);
+    response.profile.links = userObject.links || [];
     response.portfolioItems =
       userObject.portfolioItems?.map((item) => {
         return {
@@ -219,6 +221,26 @@ const getUserDetails = async (req, res) => {
           imageUrl: getFullImageUrl(item?.imageUrl) || null,
         };
       }) || [];
+
+    const [relationshipStats] = await Connection.aggregate([
+      {
+        $match: {
+          status: "active",
+          $or: [{ userA: userObject._id }, { userB: userObject._id }],
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          connectionsCount: { $sum: 1 },
+          collaborationsCount: { $sum: "$completedCount" },
+        },
+      },
+    ]);
+    response.relationshipStats = {
+      connectionsCount: relationshipStats?.connectionsCount || 0,
+      collaborationsCount: relationshipStats?.collaborationsCount || 0,
+    };
 
     try {
       response.badges = await badgesService.listUserBadges(id);

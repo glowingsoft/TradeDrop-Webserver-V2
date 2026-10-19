@@ -91,35 +91,6 @@ const updateCategoryStatus = async (req, res) => {
   }
 };
 
-const addOrUpdateCmsPage = async (req, res) => {
-  try {
-    const { slug, title, bodyMarkdown } = req.body;
-    const data = await catalogService.addOrUpdateCmsPage({ slug, title, bodyMarkdown });
-    return sendResponse({
-      res,
-      statusCode: 200,
-      translationKey: "cms_page_saved",
-      data,
-    });
-  } catch (error) {
-    return handleError(res, error);
-  }
-};
-
-const listCmsPages = async (req, res) => {
-  try {
-    const data = await catalogService.listAllCmsPages();
-    return sendResponse({
-      res,
-      statusCode: 200,
-      translationKey: "cms_pages_fetched",
-      data,
-    });
-  } catch (error) {
-    return handleError(res, error);
-  }
-};
-
 const listTimingChips = async (req, res) => {
   try {
     const data = await catalogService.listTimingChips({ req });
@@ -190,8 +161,6 @@ module.exports = {
   getCategories,
   updateCategory,
   updateCategoryStatus,
-  addOrUpdateCmsPage,
-  listCmsPages,
   listTimingChips,
   createTimingChip,
   updateTimingChip,

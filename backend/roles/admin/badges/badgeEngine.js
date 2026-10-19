@@ -1,7 +1,7 @@
 const { Badge } = require("../../../models/Badge");
 const { UserBadge } = require("../../../models/UserBadge");
 const { User } = require("../../../models/UserModel");
-const TapIn = require("../../../models/TapIn");
+const Trade = require("../../../models/Trade");
 
 const OPERATORS = {
   ">=": (value, threshold) => value >= threshold,
@@ -19,9 +19,9 @@ const compareByOperator = (value, operator, threshold) => {
 
 const METRIC_CALCULATORS = {
   completed_trades: async (userId) => {
-    return TapIn.countDocuments({
+    return Trade.countDocuments({
       status: "completed",
-      $or: [{ ownerId: userId }, { applicantId: userId }],
+      $or: [{ requesterId: userId }, { responderId: userId }],
     });
   },
   founding_member: async (userId) => {

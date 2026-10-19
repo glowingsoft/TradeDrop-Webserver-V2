@@ -5,8 +5,6 @@ const {
   getCategories,
   updateCategory,
   updateCategoryStatus,
-  addOrUpdateCmsPage,
-  listCmsPages,
   listTimingChips,
   createTimingChip,
   updateTimingChip,
@@ -23,10 +21,6 @@ router.get("/categories", listAllCategories);
 router.get("/categories/all", getCategories);
 router.patch("/categories/:id/status", updateCategoryStatus);
 router.put("/categories/:id", updateCategory);
-
-// CMS Page admin routes
-router.post("/cms-pages", addOrUpdateCmsPage);
-router.get("/cms-pages", listCmsPages);
 
 router.get("/timing-chips", listTimingChips);
 router.post("/timing-chips", createTimingChip);

@@ -1,7 +1,6 @@
 const { randomBytes } = require("crypto");
 const repo = require("../auth/authRepository");
-const catalogRepo = require("../catalog/catalogRepository");
-const Drop = require("@backend/models/Drop");
+const catalogRepo = require("../catalog/mongoCatalogRepository");
 const badgesService = require("../../admin/badges/badgesService");
 const { checkAndAwardBadges } = require("../../admin/badges/badgeEngine");
 
@@ -11,7 +10,6 @@ const MAX_PORTFOLIO = 12;
 const MAX_BIO = 280;
 const MAX_PROMPTS = 3;
 const MAX_PROMPT_LEN = 40;
-const MAX_NEED = 80;
 
 function AppError(translationKey, statusCode = 400) {
   const err = new Error(translationKey);
@@ -22,13 +20,6 @@ function AppError(translationKey, statusCode = 400) {
 
 function createId() {
   return randomBytes(12).toString("hex");
-}
-
-function roundCoord(value) {
-  if (value === null || value === undefined || value === "") return null;
-  const n = Number(value);
-  if (Number.isNaN(n)) return null;
-  return Math.round(n * 1000) / 1000;
 }
 
 async function requireUser(userId) {
@@ -44,7 +35,7 @@ function selfProfile(user) {
       name: user.name || "",
       email: user.email,
       handle: user.handle || "",
-      avatarUrl: user.avatarUrl || "",
+      profileIcon: user.profileIcon || "",
       bio: user.bio || "",
       language: user.language || "en",
       links: user.links || [],
@@ -77,57 +68,6 @@ function selfProfile(user) {
       updatedAt: user.updatedAt,
     },
   };
-}
-
-async function publicProfile(user) {
-  let rating = null;
-  let collaborators = [];
-  try {
-    const tradeService = require("../trades/tradeService");
-    rating = await tradeService.ratingForUser(user._id);
-    collaborators = await tradeService.collaboratorsForUser(user._id);
-  } catch (_) {
-    // trades module optional during early slices
-  }
-
-  const out = {
-    basicInfo: {
-      _id: user._id,
-      name: user.name || "",
-      handle: user.handle || "",
-      avatarUrl: user.avatarUrl || "",
-      bio: user.bio || "",
-      links: user.links || [],
-      prompts: user.prompts || [],
-    },
-    crafts: user.crafts || [],
-    areaLabel: user.areaLabel || "",
-    location: {
-      areaLabel: user.areaLabel || "",
-      lat: roundCoord(user.lat),
-      lng: roundCoord(user.lng),
-    },
-    openToTrade: user.openToTrade !== false,
-    verified: !!user.verified,
-    portfolioItems: (user.portfolioItems || []).map((p) => ({
-      _id: p._id,
-      imageUrl: p.imageUrl,
-      title: p.title || "",
-      tags: p.tags || [],
-      sortOrder: p.sortOrder ?? 0,
-    })),
-    onboarding: !!user.onboarding,
-    collaborators,
-  };
-  if (rating) out.rating = rating;
-
-  try {
-    out.badges = await badgesService.listUserBadges(user._id);
-  } catch (_) {
-    out.badges = [];
-  }
-
-  return out;
 }
 
 async function getMe(userId) {
@@ -176,6 +116,13 @@ async function patchMe(userId, body = {}) {
     if (bio.length > MAX_BIO) throw AppError("bio_too_long", 400);
     patch.bio = bio;
   }
+  const profileIcon = body.profileIcon !== undefined ? body.profileIcon : body.imageUrl;
+  if (profileIcon !== undefined) {
+    if (!profileIcon || typeof profileIcon !== "string") {
+      throw AppError("profile_icon_required", 400);
+    }
+    patch.profileIcon = profileIcon.trim();
+  }
   if (body.timezone !== undefined) patch.timezone = String(body.timezone);
   if (body.language !== undefined) patch.language = String(body.language);
   if (body.areaLabel !== undefined) patch.areaLabel = String(body.areaLabel);
@@ -196,14 +143,9 @@ async function patchMe(userId, body = {}) {
     }));
   }
 
-  if (body.prompts !== undefined) {
-    if (!Array.isArray(body.prompts)) throw AppError("prompts_invalid", 400);
-    if (body.prompts.length > MAX_PROMPTS) throw AppError("prompts_max", 400);
-    patch.prompts = body.prompts.map((p) => {
-      const s = String(p);
-      if (s.length > MAX_PROMPT_LEN) throw AppError("prompt_too_long", 400);
-      return s;
-    });
+  if (body.crafts !== undefined) {
+    if (!Array.isArray(body.crafts)) throw AppError("crafts_invalid", 400);
+    patch.crafts = body.crafts.map(String);
   }
 
   if (body.handle !== undefined) {
@@ -216,125 +158,41 @@ async function patchMe(userId, body = {}) {
     patch.handle = handle;
   }
 
+  const onboardingObject =
+    body.onboarding !== null && typeof body.onboarding === "object" && !Array.isArray(body.onboarding);
+  const onboardingRequested = body.onboarding === true || onboardingObject;
+  if (body.onboarding !== undefined && body.onboarding !== null && body.onboarding !== false && !onboardingRequested) {
+    throw AppError("onboarding_invalid", 400);
+  }
+  if (body.onboarding === true) {
+    patch.onboarding = true;
+  } else if (onboardingRequested) {
+    if (user.verificationStatus?.email !== "verified") throw AppError("email_unverified", 403);
+    // if (user.onboarding) throw AppError("onboarding_already_completed", 400);
+
+    const onboardingBody = onboardingObject ? { ...body, ...body.onboarding } : body;
+
+    const categories = await catalogRepo.listCategories();
+    const categoryMap = new Map();
+    categories.forEach((category) => {
+      categoryMap.set(String(category._id), String(category._id));
+      categoryMap.set(category.slug, String(category._id));
+    });
+    const resolveCategoryRef = (ref) => categoryMap.get(String(ref)) || String(ref);
+
+    let craftIds = user.crafts || [];
+    if (Array.isArray(onboardingBody.crafts)) {
+      craftIds = onboardingBody.crafts.map(resolveCategoryRef);
+      if (!craftIds.length) throw AppError("crafts_required", 400);
+    } else if (!craftIds.length) {
+      throw AppError("crafts_required", 400);
+    }
+    patch.crafts = craftIds;
+    patch.onboarding = true;
+  }
+
   const updated = await repo.update(user._id, patch);
   return selfProfile(updated);
-}
-
-async function setAvatar(userId, imageUrl) {
-  if (!imageUrl || typeof imageUrl !== "string") {
-    throw AppError("avatar_url_required", 400);
-  }
-  const user = await requireUser(userId);
-  const updated = await repo.update(user._id, { avatarUrl: imageUrl.trim() });
-  return selfProfile(updated);
-}
-
-async function completeOnboarding(userId, body = {}) {
-  const user = await requireUser(userId);
-
-  if (user.verificationStatus?.email !== "verified") throw AppError("email_unverified", 403);
-
-  if (user.onboarding) throw AppError("onboarding_already_completed", 400);
-
-  // Resolve crafts
-  const categories = await catalogRepo.listCategories();
-  const categoryMap = new Map();
-
-  categories.forEach((c) => {
-    categoryMap.set(String(c._id), String(c._id));
-    categoryMap.set(c.slug, String(c._id));
-  });
-
-  const resolveCategoryRef = (ref) => categoryMap.get(String(ref)) || String(ref);
-
-  let craftIds = user.crafts || [];
-
-  // Add/update crafts first
-  if (Array.isArray(body.crafts)) {
-    craftIds = body.crafts.map(resolveCategoryRef);
-
-    if (!craftIds.length) throw AppError("crafts_required", 400);
-
-    await repo.update(user._id, { crafts: craftIds });
-    return selfProfile(await repo.update(user._id, { crafts: craftIds }));
-  }
-
-  // Crafts required
-  if (!craftIds.length) throw AppError("crafts_required", 400);
-
-  // Skip after crafts are saved
-  if (body.skipped === true) {
-    const updated = await repo.update(user._id, {
-      onboarding: true,
-      crafts: craftIds,
-    });
-
-    return selfProfile(updated);
-  }
-
-  // Drop data
-  const {
-    needText,
-    offerText,
-    needCategoryId,
-    offerCategoryId,
-    areaLabel,
-    timingChip,
-    availableDates,
-    detail,
-    usageRights,
-    media,
-    lat,
-    lng,
-    date,
-  } = body;
-
-  if (!needText || !offerText || !needCategoryId || !offerCategoryId) throw AppError("onboarding_fields_required", 400);
-
-  if (lat === null || lat === undefined || lat === "") throw AppError("lat_required", 400);
-  if (lng === null || lng === undefined || lng === "") throw AppError("lng_required", 400);
-
-  if (String(needText).length > MAX_NEED) throw AppError("need_text_too_long", 400);
-
-  if (!areaLabel) throw AppError("area_label_required", 400);
-
-  if (!date) throw AppError("date_required", 400);
-
-  const needId = resolveCategoryRef(needCategoryId);
-  const offerId = resolveCategoryRef(offerCategoryId);
-
-  const cleanArea = String(areaLabel).trim();
-  const normalizedLat = lat === null || lat === undefined || lat === "" ? null : Number(lat);
-  const normalizedLng = lng === null || lng === undefined || lng === "" ? null : Number(lng);
-
-  const drop = await Drop.create({
-    ownerId: user._id,
-    ownerHandle: user.handle || "",
-    needText: String(needText).trim(),
-    offerText: String(offerText).trim(),
-    needCategoryId: needId,
-    offerCategoryId: offerId,
-    timingChip,
-    availableDates: Array.isArray(availableDates) ? availableDates : [],
-    areaLabel: cleanArea,
-    lat: normalizedLat,
-    lng: normalizedLng,
-    detail: detail ? String(detail).trim() : "",
-    usageRights: usageRights ? String(usageRights).trim() : "",
-    media: Array.isArray(media) ? media.map(String) : [],
-    status: "active",
-    date: date ? new Date(date) : new Date(),
-  });
-
-  const updated = await repo.update(user._id, {
-    crafts: craftIds,
-    onboarding: true,
-  });
-
-  return {
-    profile: selfProfile(updated),
-    drop,
-  };
 }
 
 async function addPortfolioItem(userId, body = {}) {
@@ -415,20 +273,6 @@ async function patchPrivacy(userId, body = {}) {
   return selfProfile(updated);
 }
 
-async function requestVerification(userId, note = "") {
-  const user = await requireUser(userId);
-  const requests = [...(user.verificationRequests || [])];
-  const reqDoc = {
-    _id: createId(),
-    note: String(note || ""),
-    status: "pending",
-    createdAt: new Date().toISOString(),
-  };
-  requests.push(reqDoc);
-  const updated = await repo.update(user._id, { verificationRequests: requests });
-  return { request: reqDoc, profile: selfProfile(updated) };
-}
-
 async function softDeleteMe(userId) {
   const user = await requireUser(userId);
   // Purge PII / secrets; keep handle for historical reviews
@@ -446,29 +290,14 @@ async function softDeleteMe(userId) {
   return { deleted: true };
 }
 
-async function getPublicByHandle(handle) {
-  const h = String(handle || "")
-    .toLowerCase()
-    .trim();
-  if (!h) throw AppError("handle_required", 400);
-  const user = await repo.findByHandle(h);
-  if (!user || user.deletedAt) throw AppError("user_not_found", 404);
-  return await publicProfile(user);
-}
-
 module.exports = {
   getMe,
   addCraft,
   patchMe,
-  setAvatar,
-  completeOnboarding,
   addPortfolioItem,
   deletePortfolioItem,
   patchPrivacy,
-  requestVerification,
   softDeleteMe,
-  getPublicByHandle,
   AppError,
-  roundCoord,
   MAX_PORTFOLIO,
 };

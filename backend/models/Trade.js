@@ -1,42 +1,42 @@
-const mongoose = require("mongoose");
+﻿const mongoose = require("mongoose");
+
+const { ObjectId } = mongoose.Schema.Types;
+
+function generateTradeCode() {
+  return `TR${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+const sideSchema = new mongoose.Schema(
+  {
+    doneAt: { type: Date, default: null },
+    proof: { type: String, default: "" },
+  },
+  { _id: false },
+);
 
 const tradeSchema = new mongoose.Schema(
   {
-    dropId: { type: mongoose.Schema.Types.ObjectId, ref: "Drop", required: true },
-    tapInId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "TapIn",
-      required: true,
-      unique: true,
-    },
-    ownerId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true,
-    },
-    applicantId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true,
-    },
-    status: {
+    tradeCode: {
       type: String,
-      enum: ["in_progress", "completion_proposed", "completed", "cancelled"],
-      default: "in_progress",
+      default: generateTradeCode,
+      immutable: true,
+      match: /^TR\d{4}$/,
+      unique: true,
       index: true,
     },
-    completionProposedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      default: null,
-    },
-    completionProposedAt: { type: Date, default: null },
-    completionPhotoUrl: { type: String, default: null },
+    tapInId: { type: ObjectId, ref: "TapIn", required: true, unique: true },
+    dropId: { type: ObjectId, ref: "Drop", required: true, index: true },
+    dropOwnerId: { type: ObjectId, ref: "User", required: true },
+    kind: { type: String, enum: ["drop", "proposal", "collaboration"], required: true },
+    requesterId: { type: ObjectId, ref: "User", required: true, index: true },
+    responderId: { type: ObjectId, ref: "User", required: true, index: true },
+    requester: { type: sideSchema, default: () => ({}) },
+    responder: { type: sideSchema, default: () => ({}) },
+    status: { type: String, enum: ["active", "completed", "cancelled"], default: "active", index: true },
+    disputeId: { type: ObjectId, ref: "Dispute", default: null },
     completedAt: { type: Date, default: null },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 module.exports = mongoose.models.Trade || mongoose.model("Trade", tradeSchema);

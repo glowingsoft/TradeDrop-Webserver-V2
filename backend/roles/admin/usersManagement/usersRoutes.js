@@ -35,7 +35,7 @@ const apiRateLimiterTwoFADisable = createRateLimiter("/users/twofa/disable", 2, 
 router.post("/", roleMiddleware(["admin"]), apiRateLimiterUserCreation, createUser);
 router.get("/reviews", apiRateLimiterUsers, roleMiddleware(["admin"]), getUserReviews);
 // Get user profile
-router.get("/:id", apiRateLimiterUserDetail, roleMiddleware(["admin"]), getUserDetails);
+router.get("/:id", apiRateLimiterUserDetail, getUserDetails);
 // Get all users with pagination
 router.get("/", apiRateLimiterUsers, roleMiddleware(["admin"]), getUsers);
 // Update an existing user

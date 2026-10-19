@@ -31,8 +31,7 @@ function shouldExposeDebugOtp() {
   return (
     process.env.DEBUG_OTP === "true" ||
     process.env.NODE_ENV === "dev" ||
-    process.env.NODE_ENV === "test" ||
-    process.env.AUTH_REPOSITORY === "memory"
+    process.env.NODE_ENV === "test"
   );
 }
 
@@ -47,7 +46,7 @@ function publicUser(user, token = null) {
       name: user.name || "",
       email: user.email,
       handle: user.handle || "",
-      avatarUrl: user.avatarUrl || "",
+      profileIcon: user.profileIcon || "",
       language: user.language || "en",
     },
     accountState: {

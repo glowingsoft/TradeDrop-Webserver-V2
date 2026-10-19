@@ -23,7 +23,16 @@ const getRadar = async (req, res) => {
     return handleError(res, error);
   }
 };
+const getRadarTabs = async (req, res) => {
+  try {
+    const data = await radarService.listRadarTabs(req);
+    return sendResponse({ res, statusCode: 200, translationKey: "radar_fetched", data });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
 
 module.exports = {
   getRadar,
+  getRadarTabs,
 };

@@ -1,21 +1,12 @@
 /**
- * TradeDrop route auth.
- * - AUTH_REPOSITORY=mongo → existing boiler plate authMiddleware (JWT + User)
- * - AUTH_REPOSITORY=memory → TF memory/repo auth (tests)
- * - requireVerifiedOnboarded → email verified + onboarding (gates Drop/Tap-in/Trade writes)
+ * TradeDrop route auth: JWT via the shared authMiddleware.
+ * requireVerifiedOnboarded: email verified + onboarding complete.
  */
 const { sendResponse } = require("../../../helperUtils/responseUtil");
-const { useMongoRepository } = require("../_shared/repoMode");
 const boilerAuth = require("../../../middlewares/authMiddleware");
-const memoryAuth = require("./memoryAuthMiddleware");
 const authRepo = require("./authRepository");
 
-function authenticate(req, res, next) {
-  if (useMongoRepository()) {
-    return boilerAuth(req, res, next);
-  }
-  return memoryAuth(req, res, next);
-}
+const authenticate = boilerAuth;
 
 function optionalAuth(req, res, next) {
   const header = req.header("Authorization");

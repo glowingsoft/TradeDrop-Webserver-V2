@@ -1,0 +1,90 @@
+name: CI/CD - Development Backend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          EC2_KEY: ${{ secrets.EC2_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$EC2_KEY" > ~/.ssh/ec2_key.pem
+          chmod 600 ~/.ssh/ec2_key.pem
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+      - name: Prepare EC2
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          ssh -i ~/.ssh/ec2_key.pem "$EC2_USER@$EC2_HOST" '
+            set -e
+            command -v node
+            command -v npm
+            command -v pm2 >/dev/null 2>&1 || sudo npm install -g pm2
+            mkdir -p ~/td_backend/backend
+          '
+
+      - name: Backup and Deploy
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          ssh -i ~/.ssh/ec2_key.pem "$EC2_USER@$EC2_HOST" '
+            set -e
+            if [ -d ~/td_backend/backend-dev ]; then
+              rm -rf ~/td_backend/backend-dev.backup
+              cp -a ~/td_backend/backend-dev ~/td_backend/backend-dev.backup
+            fi
+          '
+
+          rsync -az --delete \
+            --exclude=node_modules \
+            --exclude=.git \
+            --exclude=.env \
+            -e "ssh -i ~/.ssh/ec2_key.pem" \
+            ./backend/ \
+            "$EC2_USER@$EC2_HOST:~/td_backend/backend/"
+
+      - name: Install Dependencies and Start Development Process
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          ssh -i ~/.ssh/ec2_key.pem "$EC2_USER@$EC2_HOST" '
+            set -e
+            cd ~/td_backend/backend
+
+            NODE_OPTIONS=--max-old-space-size=512 \
+              npm install --omit=dev --no-audit --no-fund
+
+            cd ~/td_backend/backend
+
+            if pm2 describe backend >/dev/null 2>&1; then
+              pm2 restart backend --update-env
+            else
+              pm2 start server.js --name backend
+            fi
+
+            pm2 save
+            pm2 list
+          '

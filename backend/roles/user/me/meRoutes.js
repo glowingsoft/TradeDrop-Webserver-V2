@@ -5,12 +5,9 @@ const {
   getMe,
   patchMe,
   postCraft,
-  postAvatar,
-  postOnboarding,
   postPortfolio,
   deletePortfolio,
   patchPrivacy,
-  postVerification,
   deleteMe,
 } = require("./profileController");
 const {
@@ -27,12 +24,9 @@ router.get("/announcements", getUserAnnouncements);
 router.patch("/announcements/:id/read", readAnnouncement);
 router.patch("/", patchMe);
 router.post("/crafts", postCraft);
-router.post("/avatar", postAvatar);
-router.post("/onboarding", postOnboarding);
 router.post("/portfolio", postPortfolio);
 router.delete("/portfolio/:id", deletePortfolio);
 router.patch("/privacy", patchPrivacy);
-router.post("/verification", postVerification);
 router.delete("/", deleteMe);
 
 /** Gate: verified email + onboardingComplete (checked in service for this probe) */

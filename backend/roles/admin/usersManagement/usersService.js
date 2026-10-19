@@ -190,7 +190,6 @@ const updateUser = async (req, res, options = {}) => {
     profileIcon,
     name,
     timezone,
-    username,
     gender,
     dob,
     deviceId,
@@ -259,7 +258,6 @@ const updateUser = async (req, res, options = {}) => {
     if (name) user.name = name;
     if (profileIcon) user.profileIcon = profileIcon;
     if (timezone) user.timezone = timezone;
-    if (username) user.username = username;
     if (gender) user.gender = gender;
     if (dob) user.dob = dob;
     if (status) user.accountState.status = status;

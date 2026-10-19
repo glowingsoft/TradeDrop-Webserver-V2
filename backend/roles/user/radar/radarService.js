@@ -1,11 +1,15 @@
 const { User } = require("@UsersModel");
 const authRepo = require("../auth/authRepository");
-const catalogRepo = require("../catalog/catalogRepository");
+const catalogRepo = require("../catalog/mongoCatalogRepository");
 const { DEFAULT_RADAR_RADIUS_KM, CHIP_GROUPS } = require("./radarConstants");
 const { default: mongoose } = require("mongoose");
 const { parsePaginationParams, generateMeta } = require("@helperUtils/responseUtil");
 const Category = require("@models/Category");
 const { lookupUserCrafts, lookupUserRating } = require("@helperUtils/dbUtils/queryUtil");
+const Connection = require("@models/Connection");
+const BlockedUser = require("@models/BlockedUser");
+const { getAllDrops } = require("../drops/service");
+const { dropExpiredFilter } = require("../_shared/tradeShared");
 
 function AppError(translationKey, statusCode = 400) {
   const err = new Error(translationKey);
@@ -73,7 +77,7 @@ function toPin(user) {
     _id: user._id,
     handle: user.handle || "",
     name: user.name || "",
-    avatarUrl: user.avatarUrl || "",
+    profileIcon: user.profileIcon || "",
     bio: user.bio || "",
     areaLabel: user.areaLabel || "",
     lat: roundCoord(user.lat),
@@ -144,7 +148,7 @@ function toPin(user) {
 //   return users.map(toPin);
 // }
 
-async function listRadar({ req, filter = {} }) {
+async function listRadar({ req, filter = {}, recent = false }) {
   const { page, limit } = parsePaginationParams(req);
   const { radius, area, category, lat, lng } = req?.query || {};
 
@@ -208,6 +212,7 @@ async function listRadar({ req, filter = {} }) {
     });
   } else {
     pipeline.push({ $match: match });
+    if (recent) pipeline.push({ $sort: { createdAt: -1, _id: -1 } });
   }
   pipeline.push({
     $facet: {
@@ -220,7 +225,6 @@ async function listRadar({ req, filter = {} }) {
           $project: {
             _id: 1,
             name: 1,
-            username: 1,
             handle: 1,
             profileIcon: { $concat: [process.env.S3_BASE_URL || "", "$profileIcon"] },
             areaLabel: 1,
@@ -249,8 +253,103 @@ async function listRadar({ req, filter = {} }) {
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+const RADAR_TAB_LIMIT = 10;
+
+// Users the viewer must never see: blocked in either direction, plus non-active/deleted accounts
+async function excludedUserIds(viewerId) {
+  const [blocks, inactive] = await Promise.all([
+    BlockedUser.find({ $or: [{ blockedBy: viewerId }, { blockedUser: viewerId }] })
+      .select("blockedBy blockedUser")
+      .lean(),
+    User.find({ $or: [{ "accountState.status": { $ne: "active" } }, { deletedAt: { $ne: null } }] })
+      .select("_id")
+      .lean(),
+  ]);
+  const ids = new Set(inactive.map((u) => String(u._id)));
+  for (const b of blocks) {
+    ids.add(String(b.blockedBy));
+    ids.add(String(b.blockedUser));
+  }
+  ids.delete(String(viewerId));
+  return [...ids].map((id) => new mongoose.Types.ObjectId(id));
+}
+
+async function listConnectionsTab(viewerId, excluded) {
+  const viewer = new mongoose.Types.ObjectId(String(viewerId));
+  const filter = {
+    status: "active",
+    $or: [
+      { userA: viewer, userB: { $nin: excluded } },
+      { userB: viewer, userA: { $nin: excluded } },
+    ],
+  };
+  const connections = await Connection.find(filter).sort({ updatedAt: -1 }).limit(RADAR_TAB_LIMIT).lean();
+  const otherId = (c) => (String(c.userA) === String(viewerId) ? c.userB : c.userA);
+  const users = await User.find({ _id: { $in: connections.map(otherId) } })
+    .select("name handle profileIcon areaLabel")
+    .lean();
+  const byId = new Map(users.map((u) => [String(u._id), u]));
+  return {
+    data: connections.map((c) => ({
+      _id: c._id,
+      status: c.status,
+      completedCount: c.completedCount || 0,
+      user: byId.get(String(otherId(c))) || null,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+    })),
+  };
+}
+
+/**
+ * GET /radar/all — the four radar tabs in one call. Each tab is isolated, so one failing
+ * query returns { data: [], error } for that tab instead of failing the whole response.
+ */
+async function listRadarTabs(req) {
+  const viewer = req.user;
+  if (!viewer?._id) throw AppError("unauthorized", 401);
+
+  const excluded = await excludedUserIds(viewer._id);
+  const baseQuery = { ...(req.query || {}), page: 1, limit: RADAR_TAB_LIMIT };
+  const peopleReq = (query) => ({ ...req, query });
+  const peopleFilter = { deletedAt: null, _id: { $nin: excluded } };
+
+  const { lat, lng, ...queryWithoutGeo } = baseQuery;
+  const hasGeo = Number.isFinite(parseOptionalNumber(lat)) && Number.isFinite(parseOptionalNumber(lng));
+
+  const tasks = {
+    nearbyPeople: async () => {
+      if (!hasGeo) throw AppError("location_required", 400);
+      return listRadar({ req: peopleReq(baseQuery), filter: peopleFilter });
+    },
+    allPeople: () => listRadar({ req: peopleReq(queryWithoutGeo), filter: peopleFilter, recent: true }),
+    drops: () =>
+      getAllDrops(peopleReq({ ...baseQuery, notme: "true" }), {
+        extraConditions: [
+          { status: "open" },
+          dropExpiredFilter(),
+          { ownerId: { $nin: excluded } },
+        ],
+      }),
+    connections: () => listConnectionsTab(viewer._id, excluded),
+  };
+
+  const names = Object.keys(tasks);
+  const settled = await Promise.allSettled(names.map((name) => tasks[name]()));
+  return Object.fromEntries(
+    settled.map((result, i) => [
+      names[i],
+      result.status === "fulfilled"
+        ? result.value
+        : { data: [], error: result.reason?.translationKey || "internal_server" },
+    ]),
+  );
+}
+
 module.exports = {
   listRadar,
+  listRadarTabs,
   roundCoord,
   haversineKm,
   DEFAULT_RADAR_RADIUS_KM,

@@ -1,12 +1,10 @@
 const mongoose = require("mongoose");
 const Category = require("../../../models/Category");
-const CmsPage = require("../../../models/CmsPage");
 const Area = require("../../../models/Area");
 const AppSettings = require("../../../models/AppSettings");
 const { idStr, idStrOrNull } = require("../_shared/serialize");
 const { getFullImageUrl } = require("@helperUtils/imageHelper");
 const Conversation = require("@backend/commonModules/chatModule/models/Conversation");
-const timingChipRepository = require("./timingChipRepository");
 const { parsePaginationParams, generateMeta } = require("../../../helperUtils/responseUtil");
 
 const CATEGORY_SEED = [
@@ -19,29 +17,6 @@ const CATEGORY_SEED = [
   { slug: "model", name: "Model", chipGroup: "photo", sortOrder: 7 },
   { slug: "editor", name: "Editor", chipGroup: "photo", sortOrder: 8 },
   { slug: "designer", name: "Designer", chipGroup: "photo", sortOrder: 9 },
-];
-
-const CMS_SEED = [
-  {
-    slug: "terms",
-    title: "Terms of Use",
-    bodyMarkdown: "# Terms of Use\n\nPlaceholder TradeDrop terms.",
-  },
-  {
-    slug: "privacy",
-    title: "Privacy Policy",
-    bodyMarkdown: "# Privacy Policy\n\nPlaceholder TradeDrop privacy policy.",
-  },
-  {
-    slug: "about",
-    title: "About TradeDrop",
-    bodyMarkdown: "# About TradeDrop\n\nTrade your talent. Grow your craft.",
-  },
-  {
-    slug: "faq",
-    title: "FAQ",
-    bodyMarkdown: "# FAQ\n\nPlaceholder TradeDrop FAQ.",
-  },
 ];
 
 const AREA_SEED = [
@@ -59,7 +34,7 @@ function toCategory(doc) {
     name: doc.name,
     parentId: idStrOrNull(doc.parentId),
     chipGroup: doc.chipGroup,
-    active: !!doc.active,
+    status: doc.status || "active",
     sortOrder: doc.sortOrder ?? 0,
     image: getFullImageUrl(doc.image) || null,
   };
@@ -94,9 +69,6 @@ async function ensureSeed() {
         await Conversation.insertMany(conversations);
       }
     }
-  }
-  for (const page of CMS_SEED) {
-    await CmsPage.updateOne({ slug: page.slug }, { $setOnInsert: page }, { upsert: true });
   }
   for (const area of AREA_SEED) {
     await Area.updateOne({ label: area.label }, { $setOnInsert: area }, { upsert: true });
@@ -150,23 +122,8 @@ async function updateAppSettings(patch) {
 
 async function listCategories() {
   await ensureSeed();
-  const docs = await Category.find({ active: true }).sort({ sortOrder: 1 }).lean();
+  const docs = await Category.find({ status: "active" }).sort({ sortOrder: 1 }).lean();
   return docs.map(toCategory);
-}
-
-async function findCmsBySlug(slug) {
-  await ensureSeed();
-  const doc = await CmsPage.findOne({
-    slug: String(slug || "")
-      .toLowerCase()
-      .trim(),
-  }).lean();
-  if (!doc) return null;
-  return {
-    slug: doc.slug,
-    title: doc.title,
-    bodyMarkdown: doc.bodyMarkdown,
-  };
 }
 
 async function findCategoryById(id) {
@@ -214,7 +171,12 @@ async function reset() {
 async function getCategories({ req, filter = {} }) {
   const { page, limit } = parsePaginationParams(req);
 
-  const { keyword, chipGroup, parentId, status } = req.query;
+  const { keyword, chipGroup, parentId, status } = req.query || {
+    keyword: "",
+    chipGroup: "",
+    parentId: "",
+    status: "",
+  };
 
   const baseMatch = {
     ...filter,
@@ -236,7 +198,8 @@ async function getCategories({ req, filter = {} }) {
   }
 
   const match = { ...baseMatch };
-  if (status !== undefined) {
+  // A caller-supplied status may narrow the list but never override a status the route enforces
+  if (status && !filter.status) {
     match.status = status;
   }
 
@@ -326,14 +289,11 @@ module.exports = {
   getCategories,
   listCategories,
   listAllCategories,
-  findCmsBySlug,
   findCategoryById,
   findCategoryBySlug,
   createCategory,
   updateCategory,
   toPublic,
   ensureSeed,
-  allowedCmsSlugs: CMS_SEED.map((p) => p.slug),
   CATEGORY_SEED,
-  CMS_SEED,
 };

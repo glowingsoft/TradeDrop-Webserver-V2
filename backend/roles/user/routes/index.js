@@ -1,13 +1,12 @@
-const express = require("express");
+﻿const express = require("express");
 const router = express.Router();
 
-router.use("/me/drops", require("../drops/meDropsRoutes"));
-router.use("/me/tap-ins", require("../tapIns/meTapInsRoutes"));
+// Domain routers own /me/drops, /me/tap-ins and /me/trades, so they precede the generic /me router
+router.use(require("../drops/routes"));
+router.use(require("../tapIns/routes"));
+router.use(require("../trades/routes"));
+router.use(require("../disputes/routes"));
 router.use("/me", require("../me/meRoutes"));
-router.use("/users", require("../me/publicProfileRoutes"));
-router.use("/drops", require("../drops/dropsRoutes"));
-router.use("/tap-ins", require("../tapIns/tapInsRoutes"));
-router.use("/trades", require("../trades/tradesRoutes"));
 router.use("/radar", require("../radar/radarRoutes"));
 router.use(require("../catalog/catalogRoutes"));
 

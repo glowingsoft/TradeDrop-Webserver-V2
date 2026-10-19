@@ -68,7 +68,6 @@ const formatUserResponse = (userObject, token = null, includeFields = [], exclud
   if (userType == "user") {
     // basicInfo.dob = userObject.dob || "";
     // basicInfo.gender = userObject.gender || "";
-    // basicInfo.username = userObject.username || "";
   } else if (userType == "admin") {
     // Removed location for admin userType
   }

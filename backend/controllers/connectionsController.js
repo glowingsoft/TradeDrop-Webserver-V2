@@ -4,16 +4,28 @@ const { User } = require("@UsersModel");
 const { sendResponse, validateParams, parsePaginationParams, generateMeta } = require("../helperUtils/responseUtil");
 
 function otherUserId(connection, userId) {
-  return String(connection.user1) === String(userId) ? connection.user2 : connection.user1;
+  return String(connection.userA) === String(userId) ? connection.userB : connection.userA;
 }
 
 const listConnections = async (req, res) => {
   const { page, limit } = parsePaginationParams(req);
-  const userId = req.user._id;
-  const status = ["active", "blocked", "removed"].includes(req.query.status) ? req.query.status : "active";
+  const isAdmin = req?.user?.userType === "admin";
+  const userId = req?.query?.userId || null;
+
+  const status = ["active", "blocked"].includes(req.query.status) ? req.query.status : "active";
 
   try {
-    const filter = { $or: [{ user1: userId }, { user2: userId }], status };
+    const filter = { status };
+
+    // Admin: filter by userId only if provided
+    if (isAdmin) {
+      if (userId) {
+        filter.$or = [{ userA: userId }, { userB: userId }];
+      }
+    } else {
+      // Normal user: always filter by logged-in user
+      filter.$or = [{ userA: req.user._id }, { userB: req.user._id }];
+    }
     const [connections, total] = await Promise.all([
       Connection.find(filter)
         .sort({ updatedAt: -1 })
@@ -25,13 +37,14 @@ const listConnections = async (req, res) => {
 
     const otherIds = connections.map((c) => otherUserId(c, userId));
     const users = await User.find({ _id: { $in: otherIds } })
-      .select("name handle profileIcon avatarUrl")
+      .select("name handle profileIcon")
       .lean();
     const usersById = new Map(users.map((u) => [String(u._id), u]));
 
     const data = connections.map((c) => ({
       _id: c._id,
       status: c.status,
+      completedCount: c.completedCount || 0,
       user: usersById.get(String(otherUserId(c, userId))) || null,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
@@ -55,9 +68,8 @@ const getConnectionWithUser = async (req, res) => {
   const { userId: otherId } = req.params;
 
   try {
-    const [user1, user2] = Connection.normalizePair(userId, otherId);
     const [connection, blocked] = await Promise.all([
-      Connection.findOne({ user1, user2 }).lean(),
+      Connection.findOne({ pairKey: Connection.pairKeyFor(userId, otherId) }).lean(),
       BlockedUser.findOne({
         $or: [
           { blockedBy: userId, blockedUser: otherId },
@@ -88,12 +100,11 @@ const removeConnection = async (req, res) => {
   const { userId: otherId } = req.params;
 
   try {
-    const [user1, user2] = Connection.normalizePair(userId, otherId);
-    const connection = await Connection.findOneAndUpdate(
-      { user1, user2, status: { $ne: "removed" } },
-      { $set: { status: "removed" } },
-      { new: true },
-    );
+    // Blocked pairs stay in place; a block is lifted via unblock, not removal
+    const connection = await Connection.findOneAndDelete({
+      pairKey: Connection.pairKeyFor(userId, otherId),
+      status: "active",
+    });
     if (!connection) {
       return sendResponse({ res, statusCode: 404, translationKey: "connection_not_found" });
     }

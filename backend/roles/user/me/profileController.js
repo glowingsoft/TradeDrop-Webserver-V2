@@ -54,36 +54,6 @@ const postCraft = async (req, res) => {
   }
 };
 
-const postAvatar = async (req, res) => {
-  const validationOptions = { rawData: ["imageUrl"] };
-  if (!validateParams(req, res, validationOptions)) return;
-  try {
-    const data = await profileService.setAvatar(req.user._id, req.body.imageUrl);
-    return sendResponse({
-      res,
-      statusCode: 200,
-      translationKey: "avatar_updated",
-      data,
-    });
-  } catch (error) {
-    return handleError(res, error);
-  }
-};
-
-const postOnboarding = async (req, res) => {
-  try {
-    const data = await profileService.completeOnboarding(req.user._id, req.body);
-    return sendResponse({
-      res,
-      statusCode: 200,
-      translationKey: "onboarding_completed",
-      data,
-    });
-  } catch (error) {
-    return handleError(res, error);
-  }
-};
-
 const postPortfolio = async (req, res) => {
   const validationOptions = { rawData: ["imageUrl"] };
   if (!validateParams(req, res, validationOptions)) return;
@@ -156,30 +126,13 @@ const deleteMe = async (req, res) => {
   }
 };
 
-const getPublicProfile = async (req, res) => {
-  try {
-    const data = await profileService.getPublicByHandle(req.params.handle);
-    return sendResponse({
-      res,
-      statusCode: 200,
-      translationKey: "public_profile_fetched",
-      data,
-    });
-  } catch (error) {
-    return handleError(res, error);
-  }
-};
-
 module.exports = {
   getMe,
   patchMe,
   postCraft,
-  postAvatar,
-  postOnboarding,
   postPortfolio,
   deletePortfolio,
   patchPrivacy,
   postVerification,
   deleteMe,
-  getPublicProfile,
 };

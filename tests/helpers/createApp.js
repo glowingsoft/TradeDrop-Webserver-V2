@@ -53,13 +53,6 @@ function createTestApp() {
   app.use("/api/v1/connections", require("../../backend/routes/connectionRoutes"));
   app.use("/api/v1/message-requests", require("../../backend/routes/messageRequestRoutes"));
   app.use("/api/v1/blocked-users", require("../../backend/routes/blockedUserRoutes"));
-  app.use("/api/v1/disputes", require("../../backend/routes/disputeRoutes"));
-  app.use(
-    "/api/v1/admin/disputes",
-    legacyAuth,
-    roleMiddleware(["admin"]),
-    require("../../backend/roles/admin/disputes/disputesRoutes"),
-  );
 
   app.use((req, res) => {
     sendResponse({
@@ -76,8 +69,6 @@ module.exports = {
   createTestApp,
   resetAuthStore: () => repo.reset(),
   authRepo: repo,
-  resetDropStore: () => require("../../backend/roles/user/drops/dropRepository").reset(),
-  resetTapInStore: () => require("../../backend/roles/user/tapIns/tapInRepository").reset(),
   // Promotes a user to admin directly in Mongo and busts the auth-middleware user cache.
   promoteToAdmin: async (userId) => {
     const { User } = require("@UsersModel");

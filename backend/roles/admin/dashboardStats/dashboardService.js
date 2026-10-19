@@ -2,6 +2,7 @@ const moment = require("moment-timezone");
 const { User } = require("@UsersModel");
 const { Drop } = require("@models/Drop");
 const TapIn = require("@models/TapIn");
+const Trade = require("@models/Trade");
 const { Activity } = require("@models/Activity");
 const RANGE_DAYS = { last_7_days: 7, last_30_days: 30, last_90_days: 90, last_12_months: 365 };
 const countFor = (rows, key) => rows.find((row) => row._id === key)?.count || 0;
@@ -47,8 +48,8 @@ async function getDashboardStats({ range, timezone, activityLimit = 8 } = {}) {
   const inRange = { createdAt: { $gte: start, $lte: end } };
   const dateFormat = dateRange.range === "last_12_months" ? "%Y-%m" : "%Y-%m-%d";
   const liveUser = { deletedAt: null, "accountState.userType": "user" };
-  const visibleDrop = { deletedAt: null, status: { $ne: "deleted" } };
-  const visibleTapIn = { deletedAt: null, status: { $ne: "deleted" } };
+  const visibleDrop = { deletedAt: null };
+  const visibleTapIn = { deletedAt: null };
   const userQuery = User.aggregate([
     {
       $facet: {
@@ -86,7 +87,7 @@ async function getDashboardStats({ range, timezone, activityLimit = 8 } = {}) {
 
         statuses: [{ $match: visibleDrop }, { $group: { _id: "$status", count: { $sum: 1 } } }],
         /** * Deleted/hidden drops. * * We intentionally do NOT use visibleDrop here. */
-        hidden: [{ $match: { $or: [{ status: "deleted" }, { deletedAt: { $ne: null } }] } }, { $count: "count" }],
+        hidden: [{ $match: { deletedAt: { $ne: null } } }, { $count: "count" }],
         /** * New drops created in selected range. */
         postedInRange: [{ $match: { ...visibleDrop, ...inRange } }, { $count: "count" }],
         /** * Drop timeline. */
@@ -96,7 +97,7 @@ async function getDashboardStats({ range, timezone, activityLimit = 8 } = {}) {
             $group: {
               _id: { $dateToString: { format: dateFormat, date: "$createdAt", timezone: dateRange.timezone } },
               newDrops: { $sum: 1 },
-              completedDrops: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } },
+              completedDrops: { $sum: { $cond: [{ $eq: ["$status", "closed"] }, 1, 0] } },
             },
           },
         ],
@@ -132,7 +133,7 @@ async function getDashboardStats({ range, timezone, activityLimit = 8 } = {}) {
     },
   ]);
   /** * --------------------------------------------------------- * TAPIN QUERY * --------------------------------------------------------- * * IMPORTANT: * * Actual schema statuses are: * * pending * inprogress * declined * withdrawn * deleted * completed * * Therefore we do NOT query: * * in_progress * completion_proposed * * because those values are not in the provided schema. */
-  const tapInQuery = TapIn.aggregate([
+  const tapInFacets = TapIn.aggregate([
     {
       $facet: {
         /** * All visible tap-ins. */
@@ -141,33 +142,26 @@ async function getDashboardStats({ range, timezone, activityLimit = 8 } = {}) {
         sentInRange: [{ $match: { ...visibleTapIn, ...inRange } }, { $count: "count" }],
         /** * Status counts. */
         statuses: [{ $match: visibleTapIn }, { $group: { _id: "$status", count: { $sum: 1 } } }],
-        /** * Trades started in selected range. * * A trade is considered started when TapIn is: * * inprogress OR completed */
-        tradesStartedInRange: [
-          { $match: { ...visibleTapIn, ...inRange, status: { $in: ["inprogress", "completed"] } } },
-          { $count: "count" },
-        ],
-        /** * Completed trades during selected range. * * There is no top-level completedAt in the supplied * TapIn schema. * * We use applicantJob.completedAt OR * ownerJob.completedAt. */
-        completedInRange: [
-          {
-            $match: {
-              ...visibleTapIn,
-              status: "completed",
-              $or: [
-                { "ownerJob.completedAt": { $gte: start, $lte: end } },
-                { "applicantJob.completedAt": { $gte: start, $lte: end } },
-              ],
-            },
-          },
-          { $count: "count" },
-        ],
       },
     },
+  ]);
+  const tradeFacets = Trade.aggregate([
+    {
+      $facet: {
+        statuses: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+        tradesStartedInRange: [{ $match: { ...inRange, status: { $in: ["active", "completed"] } } }, { $count: "count" }],
+        completedInRange: [{ $match: { status: "completed", completedAt: { $gte: start, $lte: end } } }, { $count: "count" }],
+      },
+    },
+  ]);
+  const tapInQuery = Promise.all([tapInFacets, tradeFacets]).then(([[tapInRes = {}], [tradeRes = {}]]) => [
+    { ...tapInRes, tradeStatuses: tradeRes.statuses || [], tradesStartedInRange: tradeRes.tradesStartedInRange, completedInRange: tradeRes.completedInRange },
   ]);
   /** * --------------------------------------------------------- * ACTIVITY QUERY * --------------------------------------------------------- */
   const activityQuery = Activity.find({})
     .sort({ createdAt: -1 })
     .limit(Math.min(Math.max(Number(activityLimit) || 8, 1), 20))
-    .populate("user", "name handle areaLabel avatarUrl profileIcon")
+    .populate("user", "name handle areaLabel profileIcon")
     .populate("drop", "ownerHandle")
     .lean();
   /** * --------------------------------------------------------- * RUN QUERIES * --------------------------------------------------------- * * We still use Promise.allSettled so independent queries * can be diagnosed separately, BUT we no longer silently * turn failures into zeros. */
@@ -211,8 +205,8 @@ async function getDashboardStats({ range, timezone, activityLimit = 8 } = {}) {
   const tapInsSentInRange = tapIns.sentInRange?.[0]?.count || 0;
   const declinedTapIns = countFor(tapIns.statuses || [], "declined");
   /** * --------------------------------------------------------- * TRADE STATS * --------------------------------------------------------- */
-  const completedTrades = countFor(tapIns.statuses || [], "completed");
-  const inProgressTrades = countFor(tapIns.statuses || [], "inprogress");
+  const completedTrades = countFor(tapIns.tradeStatuses || [], "completed");
+  const inProgressTrades = countFor(tapIns.tradeStatuses || [], "active");
   /** * There is currently no completion_proposed * status in the supplied TapIn schema. * * Keep this at zero until that status is added * to the schema. */
   const awaitingConfirmationTrades = 0;
   /** * Total active trade lifecycle records. * * pending is NOT counted as a started trade. */
@@ -231,9 +225,9 @@ async function getDashboardStats({ range, timezone, activityLimit = 8 } = {}) {
       activeUsers,
       tapInsSent: totalTapIns,
       dropsPosted: totalDrops,
-      dropsLive: countFor(drops.statuses || [], "active"),
-      dropsCompleted: countFor(drops.statuses || [], "completed"),
-      dropsPaused: countFor(drops.statuses || [], "paused"),
+      dropsLive: countFor(drops.statuses || [], "open"),
+      dropsCompleted: countFor(drops.statuses || [], "closed"),
+      dropsPaused: 0,
       dropsHidden: drops.hidden?.[0]?.count || 0,
     },
     tradeReport: {
@@ -269,7 +263,7 @@ async function getDashboardStats({ range, timezone, activityLimit = 8 } = {}) {
             name: activity.user.name || "",
             handle: activity.user.handle || "",
             areaLabel: activity.user.areaLabel || "",
-            avatarUrl: activity.user.avatarUrl || activity.user.profileIcon || "",
+            profileIcon: activity.user.profileIcon || "",
           }
         : null,
       drop: activity.drop ? { _id: activity.drop._id, ownerHandle: activity.drop.ownerHandle || "" } : null,

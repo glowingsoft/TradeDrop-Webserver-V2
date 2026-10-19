@@ -21,10 +21,6 @@ const userSchema = new mongoose.Schema(
       default: "",
     },
 
-    username: {
-      type: String,
-      default: "",
-    },
     dob: {
       type: String,
       default: "",
@@ -256,10 +252,6 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
-    avatarUrl: {
-      type: String,
-      default: "",
-    },
     bio: {
       type: String,
       default: "",
@@ -305,6 +297,11 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    stats: {
+      disputesLost: { type: Number, default: 0 },
+    },
+    // Bumped inside transactions to serialize active-trade limit checks per user
+    tradeLock: { type: Number, default: 0 },
     deletedAt: {
       type: Date,
       default: null,

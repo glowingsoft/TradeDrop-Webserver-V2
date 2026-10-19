@@ -13,7 +13,6 @@ router.use("/contact-us", require("./contactUsRoutes"));
 router.use("/connections", require("./connectionRoutes"));
 router.use("/message-requests", require("./messageRequestRoutes"));
 router.use("/blocked-users", require("./blockedUserRoutes"));
-router.use("/disputes", require("./disputeRoutes"));
 router.use("/languages", require("./languageRoutes"));
 router.use("/util", require("./dbRoutes"));
 router.use("/engagement", require("../commonModules/appEngagement/engagementEventsRoutes"));
@@ -27,9 +26,6 @@ router.use("/locations", require("../shared/locations/routes"));
 router.use("/help-center", require("../roles/admin/helpCenter/helpCenterRoutes"));
 //users (admin management — JWT)
 router.use("/users", require("../roles/admin/usersManagement/usersRoutes"));
-
-// TradeDrop public profile by handle (before admin /users auth gate)
-router.use("/users", require("../roles/user/me/publicProfileRoutes"));
 
 //notification preferences
 router.use("/notification-preferences", require("./notificationPreferencesRoutes"));

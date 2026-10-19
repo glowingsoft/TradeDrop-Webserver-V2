@@ -41,7 +41,8 @@ const auth = async (req, res, next) => {
     const isMissingRequiredFields = !user || requiredFields.some((field) => !hasField(user, field));
 
     if (!user || isMissingRequiredFields) {
-      const selectFields = "name profileIcon email timezone language lat lng location accountState createdAt";
+      const selectFields =
+        "name profileIcon email timezone language lat lng location accountState createdAt onboarding";
       user = await User.findById(userId).select(selectFields);
 
       if (!user) {
