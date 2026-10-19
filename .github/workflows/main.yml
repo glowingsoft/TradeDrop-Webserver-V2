@@ -65,6 +65,16 @@ jobs:
             ./backend/ \
             "$EC2_USER@$EC2_HOST:~/td_backend/backend/"
 
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/ec2_key.pem" \
+            ./aliasConfig/ \
+            "$EC2_USER@$EC2_HOST:~/td_backend/aliasConfig/"
+
+          rsync -az \
+            -e "ssh -i ~/.ssh/ec2_key.pem" \
+            ./package.json ./package-lock.json \
+            "$EC2_USER@$EC2_HOST:~/td_backend/"
+
       - name: Install Dependencies and Start Development Process
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
@@ -72,18 +82,13 @@ jobs:
         run: |
           ssh -i ~/.ssh/ec2_key.pem "$EC2_USER@$EC2_HOST" '
             set -e
-            cd ~/td_backend/backend
+            cd ~/td_backend
 
             NODE_OPTIONS=--max-old-space-size=512 \
               npm install --omit=dev --no-audit --no-fund
 
-            cd ~/td_backend/backend
-
-            if pm2 describe backend >/dev/null 2>&1; then
-              pm2 restart backend --update-env
-            else
-              pm2 start server.js --name backend
-            fi
+            pm2 delete backend >/dev/null 2>&1 || true
+            NODE_ENV=dev pm2 start backend/server.js --name backend
 
             pm2 save
             pm2 list
