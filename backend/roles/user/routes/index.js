@@ -9,5 +9,6 @@ router.use(require("../disputes/routes"));
 router.use("/me", require("../me/meRoutes"));
 router.use("/radar", require("../radar/radarRoutes"));
 router.use(require("../catalog/catalogRoutes"));
+router.use("/favorites", require("../favorites/favoriteRoutes"));
 
 module.exports = router;
