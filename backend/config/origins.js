@@ -8,7 +8,7 @@ const PROD_ORIGINS = [
   "http://localhost:4003",
   "http://localhost:3030",
   "https://tradedrop.vercel.app",
-  "http://192.168.13.67:4003",
+  "http://54.226.24.240/",
   localRegex,
 ];
 
