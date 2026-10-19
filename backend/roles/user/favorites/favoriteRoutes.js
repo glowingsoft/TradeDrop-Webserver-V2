@@ -1,39 +1,15 @@
 const express = require("express");
-const {
-  toggleFavorite,
-  getUserFavorites,
-  isFavorited,
-} = require("../../app/favorites/favoriteController");
+const { toggleFavorite, getUserFavorites, isFavorited } = require("./favoriteController");
 const createRateLimiter = require("../../../helperUtils/rateLimiter");
 const auth = require("../../../middlewares/authMiddleware");
 
 const router = express.Router();
-
-// ✅ Require authentication for all routes
-router.use(auth);
-
-// ✅ Create a rate limiter for Favorites
 const apiRateLimiter = createRateLimiter("Favorites");
 
-/**
- * @route POST /api/v1/favorites/toggle
- * @desc Add or remove a favorite (toggle)
- * @access Authenticated users
- */
-router.post("/toggle", apiRateLimiter, toggleFavorite);
+router.use(auth, apiRateLimiter);
 
-/**
- * @route GET /api/v1/favorites/user
- * @desc Get user's favorites (paginated)
- * @access Authenticated users
- */
-router.get("/", apiRateLimiter, getUserFavorites);
-
-/**
- * @route GET /api/v1/favorites/:targetType/:targetId/status
- * @desc Check if the logged-in user has favorited a specific item
- * @access Authenticated users
- */
-router.get("/:targetType/:targetId/status", apiRateLimiter, isFavorited);
+router.post("/toggle", toggleFavorite); // favorite / unfavorite a user
+router.get("/", getUserFavorites); // users I favorited (paginated)
+router.get("/:targetId/status", isFavorited); // am I favoriting this user?
 
 module.exports = router;
