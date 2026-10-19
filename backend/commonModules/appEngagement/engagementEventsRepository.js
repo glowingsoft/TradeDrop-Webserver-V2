@@ -2,7 +2,6 @@
 const EngagementEvents = require("@EngagementEventsModel");
 const { default: mongoose } = require("mongoose");
 const { generateMeta } = require("../../helperUtils/responseUtil");
-const { pipeline } = require("supertest/lib/test");
 
 /* =====================================================
    CONFIG — TTL RULES
