@@ -39,10 +39,10 @@ const patchMe = async (req, res) => {
 };
 
 const postCraft = async (req, res) => {
-  const validationOptions = { rawData: ["craftId"] };
+  const validationOptions = { rawData: ["craftIds"] };
   if (!validateParams(req, res, validationOptions)) return;
   try {
-    const data = await profileService.addCraft(req.user._id, req.body.craftId);
+    const data = await profileService.addCraft(req.user._id, req.body.craftIds);
     return sendResponse({
       res,
       statusCode: 201,

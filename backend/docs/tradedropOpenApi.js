@@ -127,13 +127,8 @@ module.exports = {
       },
       TapInCreateBody: {
         type: "object",
-        required: ["yourOffer", "availability"],
         properties: {
-          yourOffer: { type: "string" },
-          availability: { type: "string" },
-          link: { type: "string" },
-          note: { type: "string", maxLength: 280 },
-          media: { type: "array", items: { type: "string" }, maxItems: 6 },
+          notes: { type: "string", maxLength: 1000 },
         },
       },
       ReviewBody: {

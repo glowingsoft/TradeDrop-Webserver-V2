@@ -11,7 +11,6 @@ const { idStr, idStrOrNull, httpError } = require("./serialize");
 
 const DISPUTE_WINDOW_DAYS = 7;
 const MAX_OPEN_DISPUTES = 3;
-const DIRECT_AVAILABILITY = "As discussed";
 const DIRECT_KINDS = ["proposal", "collaboration"];
 const DISPUTE_REASONS = ["not_fulfilled", "fraud", "other"];
 const DISPUTE_PRIORITIES = ["low", "medium", "high", "urgent"];
@@ -73,7 +72,10 @@ async function assertTradeCapacity(userIds, session, { selfId = null } = {}) {
   for (const id of ids) {
     const count = await Trade.countDocuments(activeTradeFilter(id)).session(session);
     if (count >= MAX_ACTIVE_TRADES) {
-      throw httpError(409, selfId && String(selfId) !== id ? "other_user_active_trade_limit" : "active_trade_limit_reached");
+      throw httpError(
+        409,
+        selfId && String(selfId) !== id ? "other_user_active_trade_limit" : "active_trade_limit_reached",
+      );
     }
   }
 }
@@ -193,8 +195,8 @@ function toDropView(drop, viewerId = null, { trade = null } = {}) {
     timingChip: drop.timingChip?.value ?? idStr(drop.timingChip),
     areaLabel: drop.areaLabel,
     // Other users see ~3 decimal degrees; the owner sees stored precision
-    lat: isOwner ? (drop.lat ?? null) : roundCoord(drop.lat),
-    lng: isOwner ? (drop.lng ?? null) : roundCoord(drop.lng),
+    lat: roundCoord(drop.lat),
+    lng: roundCoord(drop.lng),
     detail: drop.detail || "",
     status: drop.status,
     statusLabel: dropStatusLabel(drop, trade),
@@ -212,11 +214,7 @@ function toTapInView(t) {
     dropId: idStr(t.dropId),
     requesterId: idStr(t.requesterId),
     responderId: idStr(t.responderId),
-    yourOffer: t.yourOffer,
-    availability: t.availability,
-    link: t.link || "",
-    note: t.note || "",
-    media: (t.media || []).map((m) => getFullImageUrl(m)),
+    notes: t.notes || "",
     status: t.status,
     withdrawn: Boolean(t.deletedAt),
     tradeId: idStrOrNull(t.tradeId),
@@ -279,7 +277,7 @@ async function parseDropContent(body = {}) {
   const { needText, offerText, needCategoryId, offerCategoryId, timingChip, areaLabel, detail, date, lat, lng } = body;
 
   if (!body.concept || !String(body.concept).trim()) throw httpError(400, "concept_required");
-  if (String(body.concept).trim().length > 120) throw httpError(400, "concept_too_long");
+  if (String(body.concept).trim().length > 200) throw httpError(400, "concept_too_long");
   if (!needText || !String(needText).trim()) throw httpError(400, "need_text_required");
   if (!offerText || !String(offerText).trim()) throw httpError(400, "offer_text_required");
   if (!mongoose.isValidObjectId(needCategoryId) || !mongoose.isValidObjectId(offerCategoryId)) {
@@ -293,7 +291,7 @@ async function parseDropContent(body = {}) {
   }).lean();
   if (!chip) throw httpError(400, "timing_chip_invalid");
 
-  if (detail && String(detail).length > 500) throw httpError(400, "detail_too_long");
+  if (detail && String(detail).length > 1000) throw httpError(400, "detail_too_long");
   if (date && Number.isNaN(new Date(date).getTime())) throw httpError(400, "date_invalid");
 
   const hasGeo = lat != null && lng != null && !Number.isNaN(Number(lat)) && !Number.isNaN(Number(lng));
@@ -404,7 +402,6 @@ module.exports = {
   afterCompletion,
   DISPUTE_WINDOW_DAYS,
   MAX_OPEN_DISPUTES,
-  DIRECT_AVAILABILITY,
   DIRECT_KINDS,
   DISPUTE_REASONS,
   DISPUTE_OUTCOMES,

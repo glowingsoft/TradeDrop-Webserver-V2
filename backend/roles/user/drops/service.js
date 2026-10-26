@@ -63,7 +63,11 @@ async function patchDrop(userId, dropId, body = {}) {
   const set = {};
   const unset = {};
 
-  const required = { needText: "need_text_required", offerText: "offer_text_required", areaLabel: "area_label_required" };
+  const required = {
+    needText: "need_text_required",
+    offerText: "offer_text_required",
+    areaLabel: "area_label_required",
+  };
   for (const [field, key] of Object.entries(required)) {
     if (body[field] === undefined) continue;
     if (!String(body[field]).trim()) throw httpError(400, key);
@@ -186,7 +190,9 @@ async function listPublic(req, viewerId = null) {
   }
   if (area) filter.areaLabel = String(area);
   if (timing) {
-    const chip = await TimingChip.findOne({ value: String(timing).toLowerCase() }).select("_id").lean();
+    const chip = await TimingChip.findOne({ value: String(timing).toLowerCase() })
+      .select("_id")
+      .lean();
     filter.timingChip = chip ? chip._id : null;
   }
   const query = and.length ? { $and: [filter, ...and] } : filter;
@@ -215,7 +221,10 @@ async function listMyDrops(userId, req) {
       .lean(),
     Drop.countDocuments(query),
   ]);
-  const trades = await Trade.find({ dropId: { $in: items.map((d) => d._id) }, status: { $in: ["active", "completed"] } })
+  const trades = await Trade.find({
+    dropId: { $in: items.map((d) => d._id) },
+    status: { $in: ["active", "completed"] },
+  })
     .select("dropId status")
     .lean();
   const tradeByDrop = new Map(trades.map((t) => [String(t.dropId), t]));
@@ -333,6 +342,8 @@ async function getAllDrops(req, { extraConditions = [] } = {}) {
               timingChip: 1,
               date: 1,
               areaLabel: 1,
+              lat: 1,
+              lng: 1,
               detail: 1,
               status: 1,
               createdAt: 1,
@@ -353,11 +364,16 @@ async function getAllDrops(req, { extraConditions = [] } = {}) {
     Drop.distinct("areaLabel", { ...publicDropFilter(), areaLabel: { $nin: [null, ""] } }),
   ]);
   const meta = generateMeta(page, limit, total);
-  meta.timingChips = [{ value: null, label: "All" }, ...chips.map((c) => ({ _id: c._id, value: c.value, label: c.label }))];
+  meta.timingChips = [
+    { value: null, label: "All" },
+    ...chips.map((c) => ({ _id: c._id, value: c.value, label: c.label })),
+  ];
   meta.areas = [{ value: null, label: "All" }, ...areas.map((v) => ({ label: v, value: v }))];
   meta.categories = [{ _id: null, name: "All" }, ...categories];
 
-  return { data: result?.drops || [], meta };
+  const drops = result?.drops?.map((drop) => toDropView(drop)) || [];
+
+  return { data: drops, meta };
 }
 
 module.exports = {

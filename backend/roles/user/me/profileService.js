@@ -3,6 +3,8 @@ const repo = require("../auth/authRepository");
 const catalogRepo = require("../catalog/mongoCatalogRepository");
 const badgesService = require("../../admin/badges/badgesService");
 const { checkAndAwardBadges } = require("../../admin/badges/badgeEngine");
+const { UserBadge } = require("../../../models/UserBadge");
+const { getFullImageUrl } = require("@helperUtils/imageHelper");
 
 const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 const TIMING_CHIPS = ["asap", "this_week", "this_month", "flexible"];
@@ -35,7 +37,8 @@ function selfProfile(user) {
       name: user.name || "",
       email: user.email,
       handle: user.handle || "",
-      profileIcon: user.profileIcon || "",
+      profileIcon: user.profileIcon ? getFullImageUrl(user.profileIcon) || "" : "",
+      coverImage: user.coverImage ? getFullImageUrl(user.coverImage) || "" : "",
       bio: user.bio || "",
       language: user.language || "en",
       links: user.links || [],
@@ -85,25 +88,76 @@ async function getMe(userId) {
   return profile;
 }
 
-async function addCraft(userId, craftId) {
+async function addCraft(userId, craftids) {
   const user = await requireUser(userId);
-  const craftRef = String(craftId || "").trim();
-  if (!craftRef) throw AppError("craft_required", 400);
+  const craftRefs = (Array.isArray(craftids) ? craftids : [craftids])
+    .map((ref) => String(ref || "").trim())
+    .filter(Boolean);
+  if (!craftRefs.length) throw AppError("craft_required", 400);
 
   const categories = await catalogRepo.listCategories();
-  const category = categories.find((item) => String(item._id) === craftRef || item.slug === craftRef);
-  if (!category) throw AppError("craft_not_found", 404);
-
-  const normalizedCraftId = String(category._id);
   const crafts = (user.crafts || []).map(String);
-  if (crafts.includes(normalizedCraftId)) {
-    throw AppError("craft_already_exists", 409);
+  const newCraftIds = [];
+
+  for (const craftRef of craftRefs) {
+    const category = categories.find((item) => String(item._id) === craftRef || item.slug === craftRef);
+    if (!category) throw AppError("craft_not_found", 404);
+
+    const normalizedCraftId = String(category._id);
+    if (crafts.includes(normalizedCraftId) || newCraftIds.includes(normalizedCraftId)) {
+      throw AppError("craft_already_exists", 409);
+    }
+    newCraftIds.push(normalizedCraftId);
   }
 
   const updated = await repo.update(user._id, {
-    crafts: [...crafts, normalizedCraftId],
+    crafts: [...crafts, ...newCraftIds],
   });
   return selfProfile(updated);
+}
+
+async function resolveOnboardingCrafts(user, onboardingBody) {
+  const categories = await catalogRepo.listCategories();
+  const categoryMap = new Map();
+  categories.forEach((category) => {
+    categoryMap.set(String(category._id), String(category._id));
+    categoryMap.set(category.slug, String(category._id));
+  });
+  const resolveCategoryRef = (ref) => categoryMap.get(String(ref)) || String(ref);
+
+  let craftIds = user.crafts || [];
+  if (Array.isArray(onboardingBody.crafts)) {
+    craftIds = onboardingBody.crafts.map(resolveCategoryRef);
+    if (!craftIds.length) throw AppError("crafts_required", 400);
+  } else if (!craftIds.length) {
+    throw AppError("crafts_required", 400);
+  }
+  return craftIds;
+}
+
+/**
+ * Shared onboarding flow: validation, craft resolution, founding member
+ * eligibility check, member count snapshotting, and badge assignment.
+ * Returns the onboarding patch to merge into the user update, plus the
+ * founding member badge (if any) earned as a result.
+ */
+async function runOnboarding(user, body) {
+  if (user.verificationStatus?.email !== "verified") throw AppError("email_unverified", 403);
+  const patch = { onboarding: true };
+  if (!!!body.skipped) {
+    const craftIds = await resolveOnboardingCrafts(user, body);
+    patch.crafts = craftIds;
+  }
+  const awarded = await checkAndAwardBadges(user._id, "founding_member");
+  let foundingMemberBadge = awarded.find((entry) => entry.badge?.metric === "founding_member") || null;
+
+  if (!foundingMemberBadge) {
+    const existing = await UserBadge.find({ user: user._id, revokedAt: null }).populate("badge").lean();
+    const match = existing.find((entry) => entry.badge?.metric === "founding_member");
+    if (match) foundingMemberBadge = { badge: match.badge, userBadge: match };
+  }
+
+  return { patch, foundingMemberBadge };
 }
 
 async function patchMe(userId, body = {}) {
@@ -113,7 +167,6 @@ async function patchMe(userId, body = {}) {
   if (body.name !== undefined) patch.name = String(body.name).trim();
   if (body.bio !== undefined) {
     const bio = String(body.bio);
-    if (bio.length > MAX_BIO) throw AppError("bio_too_long", 400);
     patch.bio = bio;
   }
   const profileIcon = body.profileIcon !== undefined ? body.profileIcon : body.imageUrl;
@@ -123,6 +176,13 @@ async function patchMe(userId, body = {}) {
     }
     patch.profileIcon = profileIcon.trim();
   }
+  if (body.coverImage !== undefined) {
+    if (!body.coverImage || typeof body.coverImage !== "string") {
+      throw AppError("cover_image_required", 400);
+    }
+    patch.coverImage = body.coverImage.trim();
+  }
+
   if (body.timezone !== undefined) patch.timezone = String(body.timezone);
   if (body.language !== undefined) patch.language = String(body.language);
   if (body.areaLabel !== undefined) patch.areaLabel = String(body.areaLabel);
@@ -158,41 +218,23 @@ async function patchMe(userId, body = {}) {
     patch.handle = handle;
   }
 
-  const onboardingObject =
-    body.onboarding !== null && typeof body.onboarding === "object" && !Array.isArray(body.onboarding);
-  const onboardingRequested = body.onboarding === true || onboardingObject;
-  if (body.onboarding !== undefined && body.onboarding !== null && body.onboarding !== false && !onboardingRequested) {
-    throw AppError("onboarding_invalid", 400);
-  }
-  if (body.onboarding === true) {
-    patch.onboarding = true;
-  } else if (onboardingRequested) {
-    if (user.verificationStatus?.email !== "verified") throw AppError("email_unverified", 403);
-    // if (user.onboarding) throw AppError("onboarding_already_completed", 400);
-
-    const onboardingBody = onboardingObject ? { ...body, ...body.onboarding } : body;
-
-    const categories = await catalogRepo.listCategories();
-    const categoryMap = new Map();
-    categories.forEach((category) => {
-      categoryMap.set(String(category._id), String(category._id));
-      categoryMap.set(category.slug, String(category._id));
-    });
-    const resolveCategoryRef = (ref) => categoryMap.get(String(ref)) || String(ref);
-
-    let craftIds = user.crafts || [];
-    if (Array.isArray(onboardingBody.crafts)) {
-      craftIds = onboardingBody.crafts.map(resolveCategoryRef);
-      if (!craftIds.length) throw AppError("crafts_required", 400);
-    } else if (!craftIds.length) {
-      throw AppError("crafts_required", 400);
-    }
-    patch.crafts = craftIds;
-    patch.onboarding = true;
+  let foundingMemberBadge = null;
+  if (body.fromOnboarding === true) {
+    const result = await runOnboarding(user, body);
+    Object.assign(patch, result.patch);
+    foundingMemberBadge = result.foundingMemberBadge;
   }
 
   const updated = await repo.update(user._id, patch);
-  return selfProfile(updated);
+  const profile = selfProfile(updated);
+  if (foundingMemberBadge) {
+    profile.earnedBadge = {
+      badge: foundingMemberBadge.badge,
+      memberCount: foundingMemberBadge.userBadge?.memberCount,
+      earnedAt: foundingMemberBadge.userBadge?.earnedAt,
+    };
+  }
+  return profile;
 }
 
 async function addPortfolioItem(userId, body = {}) {
@@ -298,6 +340,7 @@ module.exports = {
   deletePortfolioItem,
   patchPrivacy,
   softDeleteMe,
+  runOnboarding,
   AppError,
   MAX_PORTFOLIO,
 };

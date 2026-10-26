@@ -17,6 +17,7 @@ function toPublic(doc) {
     timezone: o.timezone || "UTC",
     language: o.language || "en",
     profileIcon: o.profileIcon || "",
+    coverImage: o.coverImage || "",
     bio: o.bio || "",
     areaLabel: o.areaLabel || "",
     lat: o.lat ?? null,
