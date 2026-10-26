@@ -8,11 +8,7 @@ const tapInSchema = new mongoose.Schema(
     dropId: { type: ObjectId, ref: "Drop", required: true, index: true },
     requesterId: { type: ObjectId, ref: "User", required: true, index: true },
     responderId: { type: ObjectId, ref: "User", required: true, index: true },
-    yourOffer: { type: String, required: true },
-    availability: { type: String, required: true },
-    link: { type: String, default: "" },
-    note: { type: String, default: "" },
-    media: { type: [String], default: [] },
+    notes: { type: String, default: "" },
     status: { type: String, enum: ["pending", "accepted", "declined"], default: "pending" },
     tradeId: { type: ObjectId, ref: "Trade", default: null },
     // Set when the requester withdraws

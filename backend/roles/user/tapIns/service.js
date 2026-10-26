@@ -16,7 +16,6 @@ const {
   assertTradeCapacity,
   dropExpiredFilter,
   textOrEmpty,
-  stringArray,
   userBrief,
   usersById,
   toDropView,
@@ -24,7 +23,6 @@ const {
   toTradeView,
   parseDropContent,
   loadOwner,
-  DIRECT_AVAILABILITY,
   DIRECT_KINDS,
 } = require("../_shared/tradeShared");
 
@@ -75,11 +73,7 @@ async function sendDirect(kind, userId, targetUserId, body = {}) {
           dropId: drop._id,
           requesterId: userId,
           responderId: targetId,
-          yourOffer: drop.offerText,
-          availability: DIRECT_AVAILABILITY,
-          link: textOrEmpty(body.link, 500, "link_too_long"),
-          note: textOrEmpty(body.note, 1000, "note_too_long"),
-          media: stringArray(body.media, 10, "media_invalid"),
+          notes: textOrEmpty(body.notes, 1000, "notes_too_long"),
           status: "pending",
         },
       ],
@@ -98,21 +92,12 @@ async function tapIn(userId, dropId, body = {}) {
   if (String(drop.ownerId) === String(userId)) throw httpError(403, "cannot_tap_own_drop");
   if (await isBlockedBetween(userId, drop.ownerId)) throw httpError(403, "user_blocked");
 
-  const yourOffer = textOrEmpty(body.yourOffer, 1000, "your_offer_too_long");
-  const availability = textOrEmpty(body.availability, 300, "availability_too_long");
-  if (!yourOffer) throw httpError(400, "your_offer_required");
-  if (!availability) throw httpError(400, "availability_required");
-
   try {
     const created = await TapIn.create({
       dropId: drop._id,
       requesterId: userId,
       responderId: drop.ownerId,
-      yourOffer,
-      availability,
-      link: textOrEmpty(body.link, 500, "link_too_long"),
-      note: textOrEmpty(body.note, 1000, "note_too_long"),
-      media: stringArray(body.media, 10, "media_invalid"),
+      notes: textOrEmpty(body.notes, 1000, "notes_too_long"),
       status: "pending",
     });
     return toTapInView(created.toObject());
@@ -264,7 +249,7 @@ async function getAllTapIns({ req, filter = {} }) {
   setId("dropId", dropId);
   if (keyword?.trim()) {
     const regex = { $regex: escapeRegex(keyword.trim()), $options: "i" };
-    baseMatch.$or = [{ yourOffer: regex }, { availability: regex }, { link: regex }, { note: regex }];
+    baseMatch.$or = [{ notes: regex }];
   }
 
   let timingChipId = null;

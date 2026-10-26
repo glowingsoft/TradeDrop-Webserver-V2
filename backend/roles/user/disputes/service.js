@@ -287,7 +287,7 @@ async function getDisputes(req, filter = {}) {
               from: "tapins",
               localField: "tapInId",
               foreignField: "_id",
-              pipeline: [{ $project: { yourOffer: 1, status: 1 } }],
+              pipeline: [{ $project: { notes: 1, status: 1 } }],
               as: "tapInIdTapIn",
             },
           },

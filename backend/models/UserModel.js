@@ -15,7 +15,10 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
-
+    coverImage: {
+      type: String,
+      default: "",
+    },
     name: {
       type: String,
       default: "",
@@ -255,7 +258,6 @@ const userSchema = new mongoose.Schema(
     bio: {
       type: String,
       default: "",
-      maxlength: 280,
     },
     areaLabel: {
       type: String,

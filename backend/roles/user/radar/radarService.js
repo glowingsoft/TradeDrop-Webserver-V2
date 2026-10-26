@@ -158,10 +158,19 @@ async function listRadar({ req, filter = {}, recent = false }) {
   }
   const parsedRadius = parseOptionalNumber(radius) ?? DEFAULT_RADAR_RADIUS_KM;
   const areaLabel = area ? String(area).trim() : "";
-  const categoryValue = String(category || "all")
-    .toLowerCase()
-    .trim();
-  if (categoryValue && !CHIP_GROUPS.has(categoryValue)) {
+  const categoryValues = (Array.isArray(category) ? category : [category])
+    .flatMap((value) => String(value || "all").split(","))
+    .map((value) =>
+      value
+        .trim()
+        .replace(/^[\[\]"']+|[\[\]"']+$/g, "")
+        .toLowerCase(),
+    )
+    .filter(Boolean);
+  const selectedCategories = categoryValues.filter((value) => value !== "all");
+  const chipCategories = selectedCategories.filter((value) => CHIP_GROUPS.has(value));
+  const categoryIds = selectedCategories.filter((value) => mongoose.Types.ObjectId.isValid(value));
+  if (selectedCategories.some((value) => !CHIP_GROUPS.has(value) && !mongoose.Types.ObjectId.isValid(value))) {
     throw AppError("invalid_category", 400);
   }
   if (radius !== undefined && radius !== null && radius !== "") {
@@ -187,16 +196,23 @@ async function listRadar({ req, filter = {}, recent = false }) {
     ...filter,
     "accountState.userType": "user",
     "accountState.status": "active",
+    "verificationStatus.email": "verified",
     _id: { ...(filter._id || {}), $ne: new mongoose.Types.ObjectId(viewer._id) },
   };
   if (areaLabel) {
     match.areaLabel = { $regex: `^${escapeRegex(areaLabel)}$`, $options: "i" };
   }
-  /* * Category is stored inside crafts[]. */ if (categoryValue !== "all") {
-    if (!mongoose.Types.ObjectId.isValid(categoryValue)) {
-      throw AppError("invalid_category", 400);
-    }
-    match.crafts = new mongoose.Types.ObjectId(categoryValue);
+  /* Category selections may be chip groups or one/more category IDs; crafts stores category IDs. */
+  if (selectedCategories.length) {
+    const chipCategoryDocs = chipCategories.length
+      ? await Category.find({ chipGroup: { $in: chipCategories } }, { _id: 1 }).lean()
+      : [];
+    match.crafts = {
+      $in: [
+        ...categoryIds.map((id) => new mongoose.Types.ObjectId(id)),
+        ...chipCategoryDocs.map((categoryDoc) => categoryDoc._id),
+      ],
+    };
   }
   const pipeline = [];
   /* * Geo search MUST be first. */ if (hasGeo) {
@@ -326,11 +342,7 @@ async function listRadarTabs(req) {
     allPeople: () => listRadar({ req: peopleReq(queryWithoutGeo), filter: peopleFilter, recent: true }),
     drops: () =>
       getAllDrops(peopleReq({ ...baseQuery, notme: "true" }), {
-        extraConditions: [
-          { status: "open" },
-          dropExpiredFilter(),
-          { ownerId: { $nin: excluded } },
-        ],
+        extraConditions: [{ status: "open" }, dropExpiredFilter(), { ownerId: { $nin: excluded } }],
       }),
     connections: () => listConnectionsTab(viewer._id, excluded),
   };
@@ -341,7 +353,7 @@ async function listRadarTabs(req) {
     settled.map((result, i) => [
       names[i],
       result.status === "fulfilled"
-        ? result.value
+        ? result.value?.data
         : { data: [], error: result.reason?.translationKey || "internal_server" },
     ]),
   );

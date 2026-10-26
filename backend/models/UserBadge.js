@@ -23,6 +23,19 @@ const userBadgeSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    memberCount: {
+      type: Number,
+      default: 0,
+    },
+    revokedAt: {
+      type: Date,
+      default: null,
+    },
+    revokedReason: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     awardedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
