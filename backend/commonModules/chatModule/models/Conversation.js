@@ -4,7 +4,7 @@ const conversationSchema = new mongoose.Schema(
   {
     type: {
       type: String,
-      enum: ["direct", "group"],
+      enum: ["direct", "group", "project"],
       required: true,
       default: "direct",
     },
@@ -44,6 +44,16 @@ const conversationSchema = new mongoose.Schema(
       required: function () {
         return this.type === "group";
       },
+    },
+    tradeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Trade",
+      default: undefined,
+    },
+    circleId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Circle",
+      default: undefined,
     },
     admins: [
       {
@@ -102,5 +112,7 @@ const conversationSchema = new mongoose.Schema(
 
 conversationSchema.index({ participants: 1 });
 conversationSchema.index({ lastMessage: 1 });
+conversationSchema.index({ tradeId: 1 }, { unique: true, sparse: true });
+conversationSchema.index({ circleId: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model("Conversation", conversationSchema);

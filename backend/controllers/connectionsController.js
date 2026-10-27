@@ -12,7 +12,7 @@ const listConnections = async (req, res) => {
   const isAdmin = req?.user?.userType === "admin";
   const userId = req?.query?.userId || null;
 
-  const status = ["active", "blocked"].includes(req.query.status) ? req.query.status : "active";
+  const status = ["active", "blocked", "removed"].includes(req.query.status) ? req.query.status : "active";
 
   try {
     const filter = { status };
@@ -101,10 +101,14 @@ const removeConnection = async (req, res) => {
 
   try {
     // Blocked pairs stay in place; a block is lifted via unblock, not removal
-    const connection = await Connection.findOneAndDelete({
+    const connection = await Connection.findOneAndUpdate(
+      {
       pairKey: Connection.pairKeyFor(userId, otherId),
       status: "active",
-    });
+      },
+      { $set: { status: "removed" } },
+      { new: true },
+    );
     if (!connection) {
       return sendResponse({ res, statusCode: 404, translationKey: "connection_not_found" });
     }

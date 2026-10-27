@@ -9,8 +9,10 @@ const tapInSchema = new mongoose.Schema(
     requesterId: { type: ObjectId, ref: "User", required: true, index: true },
     responderId: { type: ObjectId, ref: "User", required: true, index: true },
     notes: { type: String, default: "" },
-    status: { type: String, enum: ["pending", "accepted", "declined"], default: "pending" },
+    status: { type: String, enum: ["pending", "accepted", "declined", "closed"], default: "pending" },
     tradeId: { type: ObjectId, ref: "Trade", default: null },
+    closedAt: { type: Date, default: null },
+    closureReason: { type: String, default: "" },
     // Set when the requester withdraws
     deletedAt: { type: Date, default: null },
   },

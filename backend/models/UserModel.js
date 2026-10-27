@@ -259,6 +259,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    specialty: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     areaLabel: {
       type: String,
       default: "",
@@ -329,11 +334,6 @@ const userSchema = new mongoose.Schema(
           title: { type: String, default: "" },
           tags: { type: [String], default: [] },
           sortOrder: { type: Number, default: 0 },
-          crafts: {
-            type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
-            default: [],
-          },
-          link: { type: String, default: "" },
         },
       ],
       default: [],

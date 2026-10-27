@@ -23,8 +23,50 @@ const { getUsersOnlineMap } = require("../sockets/chatPresenceRedis");
 const { sendUserNotifications } = require("../../../controllers/communicationController");
 const { logEngagementService } = require("../../appEngagement/engagementEventsService");
 const { User } = require("@UsersModel");
-const MessageRequest = require("../../../models/MessageRequest");
+const Trade = require("@models/Trade");
+const Circle = require("@models/Circle");
 const { isBlockedBetween, isActivelyConnected } = require("../../../helperUtils/connectionUtil");
+
+function activeConversationParticipant(conversation, userId) {
+  return conversation.participants?.some(
+    (participant) => String(participant.user?._id || participant.user) === String(userId) && participant.isActive !== false,
+  );
+}
+
+async function canAccessConversation(conversation, userId, { send = false } = {}) {
+  if (!conversation || conversation.isDeleted) return false;
+  if (!activeConversationParticipant(conversation, userId)) return false;
+  if (conversation.type === "direct") {
+    const other = conversation.participants.find(
+      (participant) => String(participant.user?._id || participant.user) !== String(userId),
+    )?.user;
+    if (!other) return false;
+    if (send) return !(await isBlockedBetween(userId, other)) && (await isActivelyConnected(userId, other));
+    return true;
+  }
+  if (conversation.type === "project") {
+    const trade = await Trade.findOne({
+      _id: conversation.tradeId,
+      $or: [{ requesterId: userId }, { responderId: userId }],
+    })
+      .select("requesterId responderId")
+      .lean();
+    if (!trade) return false;
+    const otherId = String(trade.requesterId) === String(userId) ? trade.responderId : trade.requesterId;
+    return !send || !(await isBlockedBetween(userId, otherId));
+  }
+  if (conversation.circleId) {
+    const circle = await Circle.findOne({
+      _id: conversation.circleId,
+      deletedAt: null,
+      members: { $elemMatch: { userId, status: "active" } },
+    })
+      .select("_id")
+      .lean();
+    return Boolean(circle);
+  }
+  return true;
+}
 
 const fetchChats = async (req, res) => {
   const { _id: userId, timezone } = req.user;
@@ -42,9 +84,11 @@ const fetchChats = async (req, res) => {
     const allowedStates = chatStateMap[chatState] || ["default", "favorite"];
 
     const baseMatch = {
+      isDeleted: { $ne: true },
       participants: {
         $elemMatch: {
           user: userId,
+          isActive: true,
           chatState: { $in: allowedStates },
         },
       },
@@ -257,7 +301,7 @@ const fetchMessages = async (req, res) => {
       });
     }
 
-    if (!conversation.participants.some((p) => p.user._id.toString() === userId.toString())) {
+    if (!(await canAccessConversation(conversation, userId))) {
       return sendResponse({
         res,
         statusCode: 403,
@@ -265,21 +309,27 @@ const fetchMessages = async (req, res) => {
       });
     }
 
+    await Promise.all([
+      Message.updateMany(
+        { conversationId, senderId: { $ne: userId }, "readBy.userId": { $ne: userId } },
+        { $addToSet: { readBy: { userId, readAt: new Date() } } },
+      ),
+      Conversation.updateOne({ _id: conversationId }, { $set: { [`unreadCounts.${userId}`]: 0 } }),
+    ]);
+
     const messages = await Message.find({ conversationId })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean();
 
-    //reset unread count for the user
-    // Reset unread count for the user in the background
-    Conversation.updateOne({ _id: conversationId }, { $set: { [`unreadCounts.${userId}`]: 0 } }).catch(() => {});
-
     const totalMessages = await Message.countDocuments({ conversationId });
 
     const formattedMessages = messages.map((msg) => {
       const localDate = convertUtcToTimezone(msg.createdAt, timezone);
-      const isRead = msg.readBy.some((id) => id.toString() === userId.toString()); // Compare string versions of ObjectIds
+      const isRead = msg.readBy.some(
+        (entry) => String(entry.userId?._id || entry.userId || entry) === String(userId),
+      );
 
       return {
         ...msg,
@@ -311,7 +361,7 @@ const fetchMessages = async (req, res) => {
 
 const sendMessage = async (req, res) => {
   const { _id: senderId, timezone } = req.user;
-  const { conversationId } = req.body;
+  const { conversationId, replyTo } = req.body;
   let messageType, messageContent, mediaUrl, participantIds, conversationType, groupName, participantId;
 
   if (req.body.conversationType === "group") {
@@ -327,6 +377,8 @@ const sendMessage = async (req, res) => {
   } else if (req.body.conversationType === "direct") {
     // Params for direct chat (default)
     ({ messageType, messageContent = "", mediaUrl = null, participantId = "", conversationType = "direct" } = req.body);
+  } else if (req.body.conversationType === "project") {
+    ({ messageType, messageContent = "", mediaUrl = null, conversationType = "project" } = req.body);
   }
 
   try {
@@ -351,16 +403,15 @@ const sendMessage = async (req, res) => {
             translationKey: "Direct conversation not found",
           });
         }
+        if (conversation.type !== "direct") {
+          return sendResponse({ res, statusCode: 400, translationKey: "Invalid direct conversation" });
+        }
 
-        // A block (either direction) always shuts down further messaging on an existing conversation.
-        const existingOtherUserId = conversation.participants.find(
-          (p) => p.user.toString() !== senderId.toString(),
-        )?.user;
-        if (existingOtherUserId && (await isBlockedBetween(senderId, existingOtherUserId))) {
+        if (!(await canAccessConversation(conversation, senderId, { send: true }))) {
           return sendResponse({
             res,
             statusCode: 403,
-            translationKey: "blocked_user",
+            translationKey: "connection_required_or_access_denied",
           });
         }
       } else {
@@ -391,31 +442,8 @@ const sendMessage = async (req, res) => {
         });
 
         if (!conversation) {
-          // No existing thread and no active Connection → route through a MessageRequest instead of chatting directly.
           if (!(await isActivelyConnected(senderId, otherUserId))) {
-            try {
-              const messageRequest = await MessageRequest.create({
-                sender: senderId,
-                receiver: otherUserId,
-                message: String(messageContent || "").trim(),
-                status: "pending",
-              });
-              return sendResponse({
-                res,
-                statusCode: 201,
-                translationKey: "message_request_sent",
-                data: { messageRequest },
-              });
-            } catch (err) {
-              if (err && err.code === 11000) {
-                return sendResponse({
-                  res,
-                  statusCode: 409,
-                  translationKey: "message_request_duplicate",
-                });
-              }
-              throw err;
-            }
+            return sendResponse({ res, statusCode: 403, translationKey: "connection_required" });
           }
 
           // Create new direct conversation if not found
@@ -429,6 +457,9 @@ const sendMessage = async (req, res) => {
           });
         }
       }
+      if (!(await canAccessConversation(conversation, senderId, { send: true }))) {
+        return sendResponse({ res, statusCode: 403, translationKey: "connection_required_or_access_denied" });
+      }
     } else if (conversationType === "group") {
       // Handle group messages
       if (conversationId) {
@@ -439,6 +470,12 @@ const sendMessage = async (req, res) => {
             statusCode: 404,
             translationKey: "Group conversation not found",
           });
+        }
+        if (conversation.type !== "group") {
+          return sendResponse({ res, statusCode: 400, translationKey: "Invalid group conversation" });
+        }
+        if (!(await canAccessConversation(conversation, senderId, { send: true }))) {
+          return sendResponse({ res, statusCode: 403, translationKey: "circle_membership_required" });
         }
       } else {
         if (!groupName) {
@@ -463,12 +500,44 @@ const sendMessage = async (req, res) => {
           unreadCounts: {}, // Will be updated below
         });
       }
+    } else if (conversationType === "project") {
+      if (!conversationId || !mongoose.Types.ObjectId.isValid(conversationId)) {
+        return sendResponse({ res, statusCode: 400, translationKey: "conversation_id_required" });
+      }
+      conversation = await Conversation.findById(conversationId);
+      if (!conversation) {
+        return sendResponse({ res, statusCode: 404, translationKey: "Project conversation not found" });
+      }
+      if (conversation.type !== "project") {
+        return sendResponse({ res, statusCode: 400, translationKey: "Invalid project conversation" });
+      }
+      if (!(await canAccessConversation(conversation, senderId, { send: true }))) {
+        return sendResponse({ res, statusCode: 403, translationKey: "collaboration_participant_required" });
+      }
     } else {
       return sendResponse({
         res,
         statusCode: 400,
         translationKey: "Unsupported conversation type",
       });
+    }
+
+    let replyToId = null;
+    if (replyTo !== undefined && replyTo !== null && replyTo !== "") {
+      if (!mongoose.Types.ObjectId.isValid(replyTo)) {
+        return sendResponse({ res, statusCode: 400, translationKey: "Invalid reply message ID" });
+      }
+      const parentMessage = await Message.findOne({
+        _id: replyTo,
+        conversationId: conversation._id,
+        isDeleted: { $ne: true },
+      })
+        .select("_id")
+        .lean();
+      if (!parentMessage) {
+        return sendResponse({ res, statusCode: 404, translationKey: "Reply message not found in conversation" });
+      }
+      replyToId = parentMessage._id;
     }
 
     // Create the message
@@ -478,7 +547,8 @@ const sendMessage = async (req, res) => {
       messageType,
       messageContent,
       mediaUrl,
-      readBy: [senderId],
+      replyTo: replyToId,
+      readBy: [{ userId: senderId, readAt: new Date() }],
     });
 
     // Log engagement
@@ -681,11 +751,18 @@ const addParticipantToGroup = async (req, res) => {
         translationKey: "Only group conversations can have participants added",
       });
     }
-    if (!conversation.participants.some((p) => p.user.toString() === userId)) {
+    if (!activeConversationParticipant(conversation, userId)) {
       return sendResponse({
         res,
         statusCode: 403,
         translationKey: "You do not have permission to add participants",
+      });
+    }
+    if (conversation.circleId) {
+      return sendResponse({
+        res,
+        statusCode: 403,
+        translationKey: "circle_members_must_join_through_circle_api",
       });
     }
     // Filter out participant IDs already in the group
@@ -754,12 +831,15 @@ const deleteChat = async (req, res) => {
     }
 
     // Check if the user is a participant in the conversation
-    if (!conversation.participants.some((p) => p.user.toString() === userId.toString())) {
+    if (!activeConversationParticipant(conversation, userId)) {
       return sendResponse({
         res,
         statusCode: 403,
         translationKey: "You do not have permission to delete this chat",
       });
+    }
+    if (conversation.type === "project" || conversation.circleId) {
+      return sendResponse({ res, statusCode: 403, translationKey: "conversation_cannot_be_deleted" });
     }
     // Delete all messages and the conversation in parallel
     await Promise.all([Message.deleteMany({ conversationId }), Conversation.findByIdAndDelete(conversationId)]);
@@ -808,17 +888,21 @@ const deleteMessage = async (req, res) => {
         translationKey: "You are not authorized to delete this message",
       });
     }
+    const conversation = await Conversation.findById(message.conversationId).lean();
+    if (!(await canAccessConversation(conversation, req.user._id))) {
+      return sendResponse({ res, statusCode: 403, translationKey: "access_denied" });
+    }
 
     // Soft delete the message (mark as deleted without removing it from DB)
     message.isDeleted = true;
     await message.save();
 
     // Optionally, you can also delete or update the lastMessage field in the conversation
-    const conversation = await Conversation.findById(message.conversationId);
-    if (conversation.lastMessage.toString() === message._id.toString()) {
+    const writableConversation = await Conversation.findById(message.conversationId);
+    if (writableConversation?.lastMessage && writableConversation.lastMessage.toString() === message._id.toString()) {
       // If the deleted message was the last message, set lastMessage to null
-      conversation.lastMessage = null;
-      await conversation.save();
+      writableConversation.lastMessage = null;
+      await writableConversation.save();
     }
 
     return sendResponse({
@@ -872,7 +956,7 @@ const chatActionHandler = async (req, res) => {
     // Find participant (IMPORTANT: per-user state)
     const participant = conversation.participants.find((p) => p.user.toString() === userId.toString());
 
-    if (!participant) {
+    if (!participant || participant.isActive === false) {
       return sendResponse({
         res,
         statusCode: 403,

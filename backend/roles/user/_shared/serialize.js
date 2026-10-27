@@ -14,10 +14,11 @@ function mapIds(arr) {
 }
 
 // Error shape consumed by the controllers' handleError (statusCode + translationKey)
-function httpError(statusCode, translationKey) {
+function httpError(statusCode, translationKey, data = undefined) {
   const err = new Error(translationKey);
   err.statusCode = statusCode;
   err.translationKey = translationKey;
+  if (data !== undefined) err.data = data;
   return err;
 }
 

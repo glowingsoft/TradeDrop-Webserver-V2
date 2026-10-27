@@ -6,11 +6,15 @@ function handleError(res, error) {
     res,
     statusCode: error.statusCode || 500,
     translationKey: error.translationKey || "internal_server",
+    data: error.data,
     error,
   });
 }
 
-const actorOf = (req) => ({ _id: req.user._id, isAdmin: req.user.userType === "admin" });
+const actorOf = (req) => ({
+  _id: req.user._id,
+  isAdmin: req.user.isAdmin === true || req.user.userType === "admin" || req.user.accountState?.userType === "admin",
+});
 
 // Wraps a service call that returns a single payload
 const one = (statusCode, translationKey, call) => async (req, res) => {

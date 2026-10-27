@@ -1,8 +1,10 @@
 const BlockedUser = require("../models/BlockedUser");
 const Connection = require("../models/Connection");
 const MessageRequest = require("../models/MessageRequest");
+const ConnectionRequest = require("../models/ConnectionRequest");
 const { User } = require("@UsersModel");
 const { sendResponse, validateParams, parsePaginationParams, generateMeta } = require("../helperUtils/responseUtil");
+const { withTransaction } = require("../roles/user/_shared/tradeShared");
 
 const blockUser = async (req, res) => {
   if (!validateParams(req, res, { rawData: ["userId"], objectIdFields: ["userId"] })) return;
@@ -21,22 +23,41 @@ const blockUser = async (req, res) => {
 
     let blockDoc;
     try {
-      blockDoc = await BlockedUser.create({ blockedBy, blockedUser: userId, reason: String(reason || "") });
+      blockDoc = await withTransaction(async (session) => {
+        const [created] = await BlockedUser.create(
+          [{ blockedBy, blockedUser: userId, reason: String(reason || "") }],
+          { session },
+        );
+        await Connection.updateOne(
+          { pairKey: Connection.pairKeyFor(blockedBy, userId) },
+          { $set: { status: "removed" } },
+          { session },
+        );
+        await Promise.all([
+          ConnectionRequest.updateMany(
+            { pairKey: Connection.pairKeyFor(blockedBy, userId), status: "pending" },
+            { $set: { status: "cancelled", respondedAt: new Date() } },
+            { session },
+          ),
+          MessageRequest.updateMany(
+            {
+              $or: [
+                { sender: blockedBy, receiver: userId, status: "pending" },
+                { sender: userId, receiver: blockedBy, status: "pending" },
+              ],
+            },
+            { $set: { status: "blocked", respondedAt: new Date() } },
+            { session },
+          ),
+        ]);
+        return created;
+      });
     } catch (err) {
       if (err && err.code === 11000) {
         return sendResponse({ res, statusCode: 409, translationKey: "user_already_blocked" });
       }
       throw err;
     }
-
-    await Connection.findOneAndUpdate(
-      { pairKey: Connection.pairKeyFor(blockedBy, userId) },
-      { $set: { status: "blocked" } },
-    );
-    await MessageRequest.updateMany(
-      { sender: userId, receiver: blockedBy, status: "pending" },
-      { $set: { status: "blocked", respondedAt: new Date() } },
-    );
 
     return sendResponse({ res, statusCode: 201, translationKey: "user_blocked", data: blockDoc });
   } catch (error) {
@@ -53,14 +74,6 @@ const unblockUser = async (req, res) => {
     const deleted = await BlockedUser.findOneAndDelete({ blockedBy, blockedUser: userId });
     if (!deleted) {
       return sendResponse({ res, statusCode: 404, translationKey: "block_not_found" });
-    }
-
-    const reverseBlock = await BlockedUser.findOne({ blockedBy: userId, blockedUser: blockedBy }).lean();
-    if (!reverseBlock) {
-      await Connection.findOneAndUpdate(
-        { pairKey: Connection.pairKeyFor(blockedBy, userId), status: "blocked" },
-        { $set: { status: "active" } },
-      );
     }
 
     return sendResponse({ res, statusCode: 200, translationKey: "user_unblocked" });

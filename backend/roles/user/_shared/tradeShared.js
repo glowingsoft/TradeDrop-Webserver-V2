@@ -12,10 +12,26 @@ const { idStr, idStrOrNull, httpError } = require("./serialize");
 const DISPUTE_WINDOW_DAYS = 7;
 const MAX_OPEN_DISPUTES = 3;
 const DIRECT_KINDS = ["proposal", "collaboration"];
-const DISPUTE_REASONS = ["not_fulfilled", "fraud", "other"];
+const DISPUTE_REASONS = [
+  "work_not_delivered",
+  "not_as_agreed",
+  "quality_below_agreed",
+  "stopped_responding",
+  "late_no_update",
+  "unsafe_behavior",
+  "other",
+];
 const DISPUTE_PRIORITIES = ["low", "medium", "high", "urgent"];
 const DISPUTE_STATUSES = ["open", "resolved"];
-const DISPUTE_OUTCOMES = ["complete", "cancel", "dismissed"];
+const DISPUTE_OUTCOMES = [
+  "finish_agreed_work",
+  "redo_part",
+  "agree_scope_first",
+  "cancel",
+  "need_reply",
+  "complete",
+  "dismissed",
+];
 
 const MAX_ACTIVE_TRADES = 2;
 const MAX_EXPIRATION_DAYS = 365;
@@ -116,9 +132,9 @@ function roundCoord(value) {
 function publicDropFilter(now = new Date()) {
   return {
     visibility: "public",
-    // status: "open",
+    status: "open",
     deletedAt: null,
-    // $or: [{ date: null }, { date: { $gte: now } }],
+    $or: [{ expiresAt: null }, { expiresAt: { $exists: false } }, { expiresAt: { $gt: now } }],
   };
 }
 
@@ -140,7 +156,6 @@ function dropStatusLabel(drop, trade, now = new Date()) {
   if (trade?.status === "completed") return "Completed";
   if (trade?.status === "active") return "In progress";
   if (drop.status === "open" && drop.expiresAt && new Date(drop.expiresAt) < now) return "Expired";
-  if (drop.status === "open" && drop.date && new Date(drop.date) < now) return "Expired";
   return "Open";
 }
 
@@ -181,6 +196,8 @@ function toDropView(drop, viewerId = null, { trade = null } = {}) {
     ownerHandle: drop.ownerHandle || "",
     kind: drop.kind,
     visibility: drop.visibility,
+    type: drop.type || "in_person",
+    circleId: idStrOrNull(drop.circleId),
     targetUserId: idStrOrNull(drop.targetUserId),
     needText: drop.needText,
     offerText: drop.offerText,
@@ -238,6 +255,7 @@ function toTradeView(t) {
     responder: side(t.responder),
     status: t.status,
     disputeId: idStrOrNull(t.disputeId),
+    conversationId: idStrOrNull(t.conversationId),
     completedAt: t.completedAt || null,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
@@ -247,18 +265,28 @@ function toTradeView(t) {
 function toDisputeView(d, { includeInternal = false } = {}) {
   const view = {
     _id: idStr(d._id),
-    tradeId: d.tradeId,
+    tradeId: idStrOrNull(d.tradeId?._id || d.tradeId),
     raisedBy: idStr(d.raisedBy),
     against: idStr(d.against),
     reason: d.reason,
     priority: d.priority || "medium",
     description: d.description,
+    desiredOutcome: d.desiredOutcome || null,
     evidence: d.evidence?.map((m) => getFullImageUrl(m)) || [],
     response: d.response || "",
     responseEvidence: d.responseEvidence?.map((m) => getFullImageUrl(m)) || [],
     respondedAt: d.respondedAt || null,
     status: d.status,
+    stage: d.stage || "opened",
     outcome: d.outcome || null,
+    resolvedByParticipants: (d.resolvedByParticipants || []).map((item) => ({
+      userId: idStr(item.userId),
+      confirmedAt: item.confirmedAt || null,
+    })),
+    reviewRequestedAt: d.reviewRequestedAt || null,
+    reviewRequestedBy: idStrOrNull(d.reviewRequestedBy),
+    withdrawnAt: d.withdrawnAt || null,
+    withdrawnBy: idStrOrNull(d.withdrawnBy),
     escalatedAt: d.escalatedAt || null,
     escalatedBy: idStrOrNull(d.escalatedBy),
     faultUserId: idStrOrNull(d.faultUserId),
@@ -295,12 +323,16 @@ async function parseDropContent(body = {}) {
   if (date && Number.isNaN(new Date(date).getTime())) throw httpError(400, "date_invalid");
 
   const hasGeo = lat != null && lng != null && !Number.isNaN(Number(lat)) && !Number.isNaN(Number(lng));
+  const dropType = body.type === undefined ? "in_person" : String(body.type);
+  if (!["in_person", "remote"].includes(dropType)) throw httpError(400, "drop_type_invalid");
   const startTime = parseOptionalDate(body.startTime, "start_time_invalid");
   const endTime = parseOptionalDate(body.endTime, "end_time_invalid");
   assertTimeRange(startTime, endTime);
   return {
     concept: String(body.concept).trim(),
     locationType: parseLocationType(body.locationType),
+    type: dropType,
+    circleId: body.circleId && mongoose.isValidObjectId(body.circleId) ? new mongoose.Types.ObjectId(body.circleId) : null,
     referenceImages: stringArray(body.referenceImages, 10, "reference_images_invalid"),
     startTime,
     endTime,
@@ -320,7 +352,7 @@ async function parseDropContent(body = {}) {
 }
 
 async function loadOwner(userId) {
-  const user = await User.findById(userId).select("handle deletedAt").lean();
+  const user = await User.findById(userId).select("handle deletedAt areaLabel lat lng location").lean();
   if (!user || user.deletedAt) throw httpError(401, "account_not_found");
   return user;
 }

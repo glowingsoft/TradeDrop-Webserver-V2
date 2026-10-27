@@ -12,9 +12,8 @@ module.exports = {
       "**Base:** `/api/v1`\n\n" +
       "**Envelope:** `{ message, data, meta? }` via `sendResponse`.\n\n" +
       "**Auth:** `Authorization: Bearer <JWT>` unless marked public.\n\n" +
-      "**Pagination:** cursor + `meta.nextCursor` on list endpoints (not page/limit).\n\n" +
-      "**Not in this spec (deferred):** threads HTTP (API-050–053), block/report (API-061–063), " +
-      "TradeDrop-shaped notifications read-all (API-059). Boilerplate `GET /notifications` exists separately.",
+      "**Pagination:** page/limit with `meta` on paginated list endpoints.\n\n" +
+      "Circle discussions use the Circle group chat; Event RSVPs and poll votes are embedded in their parent records.",
   },
   servers: [
     {
@@ -31,6 +30,12 @@ module.exports = {
     { name: "Trades", description: "Complete flow and reviews" },
     { name: "Radar", description: "Discovery pins (approx geo)" },
     { name: "Public", description: "Public profiles" },
+    { name: "Connections", description: "Connection request lifecycle and network" },
+    { name: "Circles", description: "Circle membership, discussions, and polls" },
+    { name: "Events", description: "Circle events and embedded RSVPs" },
+    { name: "Messaging", description: "Participant-authorized personal, Circle, and project chats" },
+    { name: "Activity", description: "Received, sent, and work activity" },
+    { name: "Reports", description: "User reports and staff moderation" },
   ],
   components: {
     securitySchemes: {
@@ -101,8 +106,9 @@ module.exports = {
       },
       DropCreateBody: {
         type: "object",
-        required: ["concept", "needText", "offerText", "needCategoryId", "offerCategoryId", "timingChip", "areaLabel"],
+        required: [],
         properties: {
+          type: { type: "string", enum: ["in_person", "remote"], default: "in_person" },
           concept: { type: "string", maxLength: 120 },
           locationType: { type: "string", enum: ["neighborhood", "specific", "remote"] },
           referenceImages: { type: "array", items: { type: "string" }, maxItems: 10 },
@@ -118,6 +124,7 @@ module.exports = {
             description: "TimingChip.value from GET /api/v1/timing-chips",
           },
           areaLabel: { type: "string" },
+          circleId: { type: "string", nullable: true },
           lat: { type: "number" },
           lng: { type: "number" },
           detail: { type: "string" },
@@ -258,17 +265,17 @@ module.exports = {
         tags: ["Drops"],
         summary: "List active drops (API-012)",
         parameters: [
-          { name: "category", in: "query", schema: { type: "string" } },
-          { name: "area", in: "query", schema: { type: "string" } },
-          { name: "timing", in: "query", schema: { type: "string" } },
-          { name: "cursor", in: "query", schema: { type: "string" } },
+          { name: "needCategoryId", in: "query", schema: { type: "string" } },
+          { name: "areaLabel", in: "query", schema: { type: "string" } },
+          { name: "timingChip", in: "query", schema: { type: "string" } },
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
           { name: "limit", in: "query", schema: { type: "integer" } },
         ],
-        responses: { 200: { description: "Cursor-paginated drops" } },
+        responses: { 200: { description: "Paginated published Drops" } },
       },
       post: {
         tags: ["Drops"],
-        summary: "Create drop (API-030)",
+        summary: "Create a Drop draft (all new Drops start as drafts)",
         security: [{ bearerAuth: [] }],
         requestBody: {
           required: true,
@@ -297,7 +304,7 @@ module.exports = {
         summary: "Update drop (API-031)",
         security: [{ bearerAuth: [] }],
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "Updated" }, 403: { description: "Not owner or completed" } },
+        responses: { 200: { description: "Updated draft or open Drop" }, 403: { description: "Not owner" } },
       },
       delete: {
         tags: ["Drops"],
@@ -307,31 +314,40 @@ module.exports = {
         responses: { 200: { description: "Deleted" } },
       },
     },
-    "/drops/{id}/pause": {
+    "/drops/{id}/publish": {
       post: {
         tags: ["Drops"],
-        summary: "Pause drop (API-032)",
+        summary: "Publish a draft, returning current open Drop IDs if the two-Drop limit is reached",
         security: [{ bearerAuth: [] }],
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "Paused" } },
+        responses: { 200: { description: "Published or kept as a draft when at capacity" } },
       },
     },
-    "/drops/{id}/resume": {
+    "/drops/{id}/close": {
       post: {
         tags: ["Drops"],
-        summary: "Resume drop (API-033)",
+        summary: "Close a Drop and its pending Tap Ins",
         security: [{ bearerAuth: [] }],
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "Active" } },
+        responses: { 200: { description: "Closed; accepted Collaborations remain active" } },
       },
     },
-    "/drops/{id}/fulfill": {
+    "/drops/{id}/reopen": {
       post: {
         tags: ["Drops"],
-        summary: "Fulfill drop (API-034)",
+        summary: "Reopen a closed or expired Drop for seven days",
         security: [{ bearerAuth: [] }],
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "completed; pending tap-ins auto-declined" } },
+        responses: { 200: { description: "Reopened or not reopened when at capacity" } },
+      },
+    },
+    "/drops/{id}/extend": {
+      post: {
+        tags: ["Drops"],
+        summary: "Extend an open Drop for seven days",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Extended or reopened" } },
       },
     },
     "/drops/{id}/tap-ins": {
@@ -394,13 +410,18 @@ module.exports = {
     "/me/drops": {
       get: {
         tags: ["Drops"],
-        summary: "My drops (API-036)",
+        summary: "My open Drops by default; use status=ended for closed or expired Drops",
         security: [{ bearerAuth: [] }],
         parameters: [
-          { name: "cursor", in: "query", schema: { type: "string" } },
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
           { name: "limit", in: "query", schema: { type: "integer" } },
+          {
+            name: "status",
+            in: "query",
+            schema: { type: "string", enum: ["open", "draft", "closed", "expired", "ended"], default: "open" },
+          },
         ],
-        responses: { 200: { description: "Owner drops including paused" } },
+        responses: { 200: { description: "Paginated Drops owned by the caller, including draft and ended filters" } },
       },
     },
     "/me": {
@@ -546,31 +567,13 @@ module.exports = {
         responses: { 200: { description: "Withdrawn" } },
       },
     },
-    "/trades/{id}/complete": {
+    "/trades/{id}/done": {
       post: {
         tags: ["Trades"],
-        summary: "Propose trade complete (API-054)",
+        summary: "Confirm your side of Collaboration completion",
         security: [{ bearerAuth: [] }],
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "completion_proposed" } },
-      },
-    },
-    "/trades/{id}/complete/confirm": {
-      post: {
-        tags: ["Trades"],
-        summary: "Confirm completion (API-055)",
-        security: [{ bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "completed" } },
-      },
-    },
-    "/trades/{id}/complete/reject": {
-      post: {
-        tags: ["Trades"],
-        summary: "Reject completion proposal (API-056)",
-        security: [{ bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "Back to in_progress" } },
+        responses: { 200: { description: "Completion requires confirmation from both participants" } },
       },
     },
     "/trades/{id}/review": {
@@ -595,7 +598,7 @@ module.exports = {
     "/radar": {
       get: {
         tags: ["Radar"],
-        summary: "Radar pins (API-014)",
+        summary: "Radar: Nearby People and Open Drops",
         parameters: [
           { name: "lat", in: "query", schema: { type: "number" } },
           { name: "lng", in: "query", schema: { type: "number" } },
@@ -611,8 +614,472 @@ module.exports = {
           { name: "area", in: "query", schema: { type: "string" } },
         ],
         responses: {
-          200: { description: "Pins; lat/lng ~3 decimals; no email" },
+          200: { description: "Nearby People with connection state and open Drop IDs, plus Open Drops; no email" },
         },
+      },
+    },
+    "/for-you": {
+      get: {
+        tags: ["Radar"],
+        summary: "Nearby Circles, Events, and Drops; set anywhere=true to remove the location restriction",
+        parameters: [
+          { name: "lat", in: "query", schema: { type: "number" } },
+          { name: "lng", in: "query", schema: { type: "number" } },
+          { name: "anywhere", in: "query", schema: { type: "boolean" } },
+        ],
+        responses: { 200: { description: "Paginated discovery results" } },
+      },
+    },
+    "/activity/{tab}": {
+      get: {
+        tags: ["Activity"],
+        summary: "Activity tabs: received, sent, or work",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "tab", in: "path", required: true, schema: { type: "string", enum: ["received", "sent", "work"] } },
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer" } },
+        ],
+        responses: { 200: { description: "Activity payload and pagination metadata" } },
+      },
+    },
+    "/connection-requests": {
+      post: {
+        tags: ["Connections"],
+        summary: "Send a connection request, optionally with a note",
+        security: [{ bearerAuth: [] }],
+        responses: {
+          201: { description: "Request sent" },
+          409: { description: "Pending request or decline cooldown" },
+        },
+      },
+    },
+    "/connection-requests/incoming": {
+      get: {
+        tags: ["Connections"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Incoming requests" } },
+      },
+    },
+    "/connection-requests/outgoing": {
+      get: {
+        tags: ["Connections"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Outgoing requests and statuses" } },
+      },
+    },
+    "/connection-requests/{id}/accept": {
+      post: {
+        tags: ["Connections"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Request accepted" } },
+      },
+    },
+    "/connection-requests/{id}/decline": {
+      post: {
+        tags: ["Connections"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Request declined with a 30-day pair cooldown" } },
+      },
+    },
+    "/connection-requests/{id}/withdraw": {
+      post: {
+        tags: ["Connections"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Request withdrawn" } },
+      },
+    },
+    "/connections/{userId}": {
+      delete: {
+        tags: ["Connections"],
+        summary: "Remove an active connection without restoring it on unblock",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Connection removed; personal messaging is closed" } },
+      },
+    },
+    "/me/network": {
+      get: {
+        tags: ["Connections"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Latest five connections, pending requests, Circles, open Drops, and saved people" } },
+      },
+    },
+    "/me/collaborations": {
+      get: {
+        tags: ["Trades"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Paginated Collaborations and participant details" } },
+      },
+    },
+    "/trades/{id}/disputes": {
+      post: {
+        tags: ["Trades"],
+        summary: "Open a Collaboration dispute",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: {
+          201: { description: "Dispute opened (20-500 character description; up to three evidence images)" },
+        },
+      },
+    },
+    "/disputes/{id}/respond": {
+      post: {
+        tags: ["Trades"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Respond to the dispute" } },
+      },
+    },
+    "/disputes/{id}/mutual-resolved": {
+      post: {
+        tags: ["Trades"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "One participant confirms resolution; both must confirm" } },
+      },
+    },
+    "/disputes/{id}/request-review": {
+      post: {
+        tags: ["Trades"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Request TradeDrop review" } },
+      },
+    },
+    "/disputes/{id}/withdraw": {
+      post: {
+        tags: ["Trades"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Opener withdraws the dispute" } },
+      },
+    },
+    "/disputes/{id}/resolve": {
+      post: {
+        tags: ["Trades"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Authorized administrator resolves reviewed dispute" } },
+      },
+    },
+    "/circles": {
+      get: {
+        tags: ["Circles"],
+        responses: { 200: { description: "Public Open and Approval Circles; invite-only Circles are hidden" } },
+      },
+      post: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        responses: { 201: { description: "Create Circle and its group chat" } },
+      },
+    },
+    "/me/circles": {
+      get: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Paginated searchable Circle memberships" } },
+      },
+    },
+    "/circles/{id}": {
+      get: {
+        tags: ["Circles"],
+        responses: { 200: { description: "Circle details, member roles, latest Event, and open member Drops" } },
+      },
+      patch: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Update Circle (organizer only)" } },
+      },
+      delete: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Delete Circle and consistently close linked records" } },
+      },
+    },
+    "/circles/{id}/join": {
+      post: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Join Open or request Approval membership" } },
+      },
+    },
+    "/circles/{id}/leave": {
+      post: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Leave Circle" } },
+      },
+    },
+    "/circles/{id}/members/{userId}/approve": {
+      post: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "userId", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: { 200: { description: "Organizer approves a membership request" } },
+      },
+    },
+    "/circles/{id}/members/{userId}/decline": {
+      post: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "userId", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: { 200: { description: "Organizer declines a membership request" } },
+      },
+    },
+    "/circles/{id}/invitations": {
+      post: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Invite selected users to an invite-only Circle" } },
+      },
+    },
+    "/circles/{id}/invitations/respond": {
+      post: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Accept or decline a Circle invitation" } },
+      },
+    },
+    "/circles/{id}/transfer-organizer": {
+      post: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Transfer organizer responsibility to another active member" } },
+      },
+    },
+    "/circles/{id}/polls": {
+      post: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        responses: { 201: { description: "Create a poll (one active poll per Circle)" } },
+      },
+    },
+    "/circles/{id}/polls/vote": {
+      post: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Vote once in an active Circle poll" } },
+      },
+    },
+    "/events": {
+      get: {
+        tags: ["Events"],
+        responses: { 200: { description: "Published Events visible under Circle audience rules" } },
+      },
+      post: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        responses: { 201: { description: "Create an Event draft in a Circle the caller organizes" } },
+      },
+    },
+    "/events/{id}": {
+      get: {
+        tags: ["Events"],
+        responses: { 200: { description: "Event details and relevant open Circle-member Drops" } },
+      },
+      patch: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Edit Event draft" } },
+      },
+    },
+    "/events/{id}/publish": {
+      post: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Publish organizer-approved Event draft" } },
+      },
+    },
+    "/events/{id}/cancel": {
+      post: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Cancel Event" } },
+      },
+    },
+    "/events/{id}/rsvp": {
+      post: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "RSVP or reserve a capacity waitlist position" } },
+      },
+    },
+    "/events/{id}/rsvp/cancel": {
+      post: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Cancel the caller's Event reservation" } },
+      },
+    },
+    "/events/{id}/rsvp/{userId}/approve": {
+      post: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "userId", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: { 200: { description: "Organizer approves an Event reservation request" } },
+      },
+    },
+    "/events/{id}/rsvp/{userId}/decline": {
+      post: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "userId", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: { 200: { description: "Organizer declines an Event reservation request" } },
+      },
+    },
+    "/circles/{circleId}/event-suggestions": {
+      get: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "circleId", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Organizer-visible Event suggestions" } },
+      },
+      post: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "circleId", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 201: { description: "Submit an Event suggestion for organizer approval" } },
+      },
+    },
+    "/events/{id}/suggestion/approve": {
+      post: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Organizer approves an Event suggestion as a draft" } },
+      },
+    },
+    "/events/{id}/suggestion/decline": {
+      post: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Organizer declines an Event suggestion" } },
+      },
+    },
+    "/events/{id}/suggestion": {
+      delete: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Organizer removes an Event suggestion" } },
+      },
+    },
+    "/conversations": {
+      get: {
+        tags: ["Messaging"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Caller-visible conversations" } },
+      },
+    },
+    "/conversations/messages": {
+      get: {
+        tags: ["Messaging"],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "conversationId", in: "query", schema: { type: "string" } },
+          { name: "objectId", in: "query", schema: { type: "string" } },
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer" } },
+        ],
+        responses: { 200: { description: "Paginated messages; fetching marks received messages read" } },
+      },
+    },
+    "/conversations/message": {
+      post: {
+        tags: ["Messaging"],
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["conversationType", "messageType"],
+                properties: {
+                  conversationType: { type: "string", enum: ["direct", "group", "project"] },
+                  conversationId: { type: "string" },
+                  participantId: { type: "string", description: "Required when creating a direct conversation" },
+                  messageType: { type: "string", enum: ["text", "audio", "file"] },
+                  messageContent: { type: "string" },
+                  mediaUrl: { type: "string" },
+                  replyTo: { type: "string", description: "Parent message in the same conversation" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: "Message sent after conversation authorization" },
+          403: { description: "Connection, Circle membership, or Collaboration access required" },
+        },
+      },
+    },
+    "/conversations/{conversationId}": {
+      delete: {
+        tags: ["Messaging"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Delete an eligible caller-owned conversation" } },
+      },
+    },
+    "/conversations/{conversationId}/action": {
+      put: {
+        tags: ["Messaging"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Update the caller's conversation state" } },
+      },
+    },
+    "/conversations/{conversationId}/participants": {
+      post: {
+        tags: ["Messaging"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "conversationId", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "Add participants to an eligible non-Circle group" } },
+      },
+    },
+    "/reports": {
+      post: {
+        tags: ["Reports"],
+        security: [{ bearerAuth: [] }],
+        responses: { 201: { description: "Create report with optional block" } },
+      },
+    },
+    "/me/reports": {
+      get: {
+        tags: ["Reports"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Reporter-owned reports" } },
+      },
+    },
+    "/admin/reports": {
+      get: {
+        tags: ["Reports"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Staff report moderation queue" } },
+      },
+    },
+    "/admin/reports/{id}": {
+      patch: {
+        tags: ["Reports"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Staff-only status transition; reporter is notified" } },
       },
     },
     "/users/{handle}": {

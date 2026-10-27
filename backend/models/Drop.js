@@ -8,14 +8,49 @@ const dropSchema = new mongoose.Schema(
     visibility: { type: String, enum: ["public", "direct"], default: "public", required: true },
     // Set for direct drops only
     // NEW: Drop title and description
-    concept: { type: String, required: true, trim: true },
+    concept: {
+      type: String,
+      required: function () {
+        return this.status !== "draft";
+      },
+      trim: true,
+      default: "",
+    },
     detail: { type: String, default: "", trim: true },
     targetUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
-    needText: { type: String, required: true },
-    offerText: { type: String, required: true },
-    needCategoryId: { type: mongoose.Schema.Types.ObjectId, ref: "Category", required: true },
-    offerCategoryId: { type: mongoose.Schema.Types.ObjectId, ref: "Category", required: true },
-    timingChip: { type: mongoose.Schema.Types.ObjectId, ref: "TimingChip", required: true },
+    needText: {
+      type: String,
+      required: function () {
+        return this.status !== "draft";
+      },
+      default: "",
+    },
+    offerText: {
+      type: String,
+      required: function () {
+        return this.status !== "draft";
+      },
+      default: "",
+    },
+    needCategoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      required: function () {
+        return this.status !== "draft";
+      },
+    },
+    offerCategoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      required: function () {
+        return this.status !== "draft";
+      },
+    },
+    timingChip: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "TimingChip",
+      default: null,
+    },
     date: { type: Date, default: null },
     startTime: { type: Date, default: null },
     endTime: { type: Date, default: null },
@@ -27,11 +62,21 @@ const dropSchema = new mongoose.Schema(
       enum: ["neighborhood", "specific", "remote"],
       default: "neighborhood",
     },
-    areaLabel: { type: String, required: true },
+    type: { type: String, enum: ["in_person", "remote"], default: "in_person" },
+    circleId: { type: mongoose.Schema.Types.ObjectId, ref: "Circle", default: null, index: true },
+    areaLabel: {
+      type: String,
+      required: function () {
+        return this.status !== "draft" && this.type !== "remote";
+      },
+      default: "",
+    },
     lat: { type: Number, default: null },
     lng: { type: Number, default: null },
     location: { type: [Number], default: undefined },
-    status: { type: String, enum: ["open", "closed"], default: "open" },
+    status: { type: String, enum: ["draft", "open", "closed", "expired"], default: "draft" },
+    publishedAt: { type: Date, default: null },
+    closedAt: { type: Date, default: null },
     deletedAt: { type: Date, default: null },
     referenceImages: {
       type: [String],
@@ -43,6 +88,7 @@ const dropSchema = new mongoose.Schema(
 
 dropSchema.index({ visibility: 1, status: 1, deletedAt: 1, createdAt: -1 });
 dropSchema.index({ ownerId: 1, status: 1 });
+dropSchema.index({ circleId: 1, status: 1, createdAt: -1 });
 dropSchema.index({ targetUserId: 1 }, { sparse: true });
 dropSchema.index({ areaLabel: 1 });
 dropSchema.index({ location: "2dsphere" });

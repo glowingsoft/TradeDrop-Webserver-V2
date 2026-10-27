@@ -7,6 +7,7 @@ const { parsePaginationParams, generateMeta } = require("@helperUtils/responseUt
 const Category = require("@models/Category");
 const { lookupUserCrafts, lookupUserRating } = require("@helperUtils/dbUtils/queryUtil");
 const Connection = require("@models/Connection");
+const ConnectionRequest = require("@models/ConnectionRequest");
 const BlockedUser = require("@models/BlockedUser");
 const { getAllDrops } = require("../drops/service");
 const { dropExpiredFilter } = require("../_shared/tradeShared");
@@ -150,7 +151,7 @@ function toPin(user) {
 
 async function listRadar({ req, filter = {}, recent = false }) {
   const { page, limit } = parsePaginationParams(req);
-  const { radius, area, category, lat, lng } = req?.query || {};
+  const { radius, area, category, lat, lng, keyword } = req?.query || {};
 
   const viewer = req.user;
   if (!viewer?._id) {
@@ -178,11 +179,24 @@ async function listRadar({ req, filter = {}, recent = false }) {
       throw AppError("invalid_radius", 400);
     }
   }
+  const hasLatitude = lat !== undefined && lat !== null && lat !== "";
+  const hasLongitude = lng !== undefined && lng !== null && lng !== "";
+  if (hasLatitude !== hasLongitude) throw AppError("location_invalid", 400);
   let viewerLng = null;
   let viewerLat = null;
-  if (lat !== undefined && lat !== null && lat !== "" && lng !== undefined && lng !== null && lng !== "") {
+  if (hasLatitude && hasLongitude) {
     viewerLat = parseOptionalNumber(lat);
     viewerLng = parseOptionalNumber(lng);
+    if (
+      viewerLat === null ||
+      viewerLng === null ||
+      viewerLat < -90 ||
+      viewerLat > 90 ||
+      viewerLng < -180 ||
+      viewerLng > 180
+    ) {
+      throw AppError("location_invalid", 400);
+    }
   }
   // if (Array.isArray(viewer.location) && viewer.location.length >= 2) {
   //   viewerLng = Number(viewer.location[0]);
@@ -197,8 +211,31 @@ async function listRadar({ req, filter = {}, recent = false }) {
     "accountState.userType": "user",
     "accountState.status": "active",
     "verificationStatus.email": "verified",
+    onboarding: true,
+    radarVisible: { $ne: false },
+    openToTrade: { $ne: false },
+    hideFromSearch: { $ne: true },
     _id: { ...(filter._id || {}), $ne: new mongoose.Types.ObjectId(viewer._id) },
   };
+  if (keyword?.trim()) {
+    const expression = { $regex: escapeRegex(keyword.trim()), $options: "i" };
+    match.$or = [
+      { name: expression },
+      { handle: expression },
+      { bio: expression },
+      { specialty: expression },
+      { areaLabel: expression },
+    ];
+  }
+  const blocks = await BlockedUser.find({
+    $or: [{ blockedBy: viewer._id }, { blockedUser: viewer._id }],
+  })
+    .select("blockedBy blockedUser")
+    .lean();
+  const blockedIds = blocks.map((block) =>
+    String(block.blockedBy) === String(viewer._id) ? block.blockedUser : block.blockedBy,
+  );
+  match._id.$nin = blockedIds;
   if (areaLabel) {
     match.areaLabel = { $regex: `^${escapeRegex(areaLabel)}$`, $options: "i" };
   }
@@ -244,6 +281,10 @@ async function listRadar({ req, filter = {}, recent = false }) {
             handle: 1,
             profileIcon: { $concat: [process.env.S3_BASE_URL || "", "$profileIcon"] },
             areaLabel: 1,
+            bio: 1,
+            category: 1,
+            specialty: 1,
+            openToTrade: 1,
             crafts: 1,
             lat: 1,
             lng: 1,
@@ -258,11 +299,61 @@ async function listRadar({ req, filter = {}, recent = false }) {
   });
   const [result] = await User.aggregate(pipeline);
   const total = result?.total?.[0]?.count || 0;
+  const people = result?.users || [];
+  const userIds = people.map((user) => user._id);
+  const [connections, requests, dropIds] = await Promise.all([
+    Connection.find({ status: "active", $or: [{ userA: viewer._id, userB: { $in: userIds } }, { userB: viewer._id, userA: { $in: userIds } }] })
+      .select("userA userB status")
+      .lean(),
+    ConnectionRequest.find({
+      pairKey: { $in: userIds.map((id) => Connection.pairKeyFor(viewer._id, id)) },
+      status: { $in: ["pending", "declined"] },
+    })
+      .sort({ createdAt: -1 })
+      .lean(),
+    Drop.find({
+      ownerId: { $in: userIds },
+      status: "open",
+      deletedAt: null,
+      $or: [{ expiresAt: null }, { expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }],
+    })
+      .select("_id ownerId")
+      .lean(),
+  ]);
+  const requestByPair = new Map();
+  for (const request of requests) {
+    if (!requestByPair.has(request.pairKey)) requestByPair.set(request.pairKey, request);
+  }
+  const connectedIds = new Set(
+    connections.map((connection) =>
+      String(connection.userA) === String(viewer._id) ? String(connection.userB) : String(connection.userA),
+    ),
+  );
+  const dropsByOwner = new Map();
+  for (const drop of dropIds) {
+    const key = String(drop.ownerId);
+    if (!dropsByOwner.has(key)) dropsByOwner.set(key, []);
+    dropsByOwner.get(key).push(String(drop._id));
+  }
+  const data = people.map((person) => {
+    const pair = Connection.pairKeyFor(viewer._id, person._id);
+    const latestRequest = requestByPair.get(pair);
+    const connected = connectedIds.has(String(person._id));
+    const incoming = latestRequest?.status === "pending" && String(latestRequest.recipientId) === String(viewer._id);
+    const outgoing = latestRequest?.status === "pending" && String(latestRequest.requesterId) === String(viewer._id);
+    const inCooldown = latestRequest?.status === "declined" && latestRequest.cooldownUntil > new Date();
+    return {
+      ...person,
+      connectionStatus: connected ? "connected" : incoming ? "incoming_request" : outgoing ? "request_sent" : latestRequest?.status === "declined" ? "declined" : "not_connected",
+      canSendConnectionRequest: !connected && !incoming && !outgoing && !inCooldown,
+      openDropIds: dropsByOwner.get(String(person._id)) || [],
+    };
+  });
   const categories = await Category.find({}, { _id: 1, name: 1 }).lean();
   const meta = generateMeta(page, limit, total);
   meta.categories = [{ _id: null, name: "All" }, ...categories];
   return {
-    data: result?.users || [],
+    data,
     meta,
   };
 }
@@ -335,16 +426,11 @@ async function listRadarTabs(req) {
   const hasGeo = Number.isFinite(parseOptionalNumber(lat)) && Number.isFinite(parseOptionalNumber(lng));
 
   const tasks = {
-    nearbyPeople: async () => {
-      if (!hasGeo) throw AppError("location_required", 400);
-      return listRadar({ req: peopleReq(baseQuery), filter: peopleFilter });
-    },
-    allPeople: () => listRadar({ req: peopleReq(queryWithoutGeo), filter: peopleFilter, recent: true }),
-    drops: () =>
+    nearbyPeople: () => listRadar({ req: peopleReq(hasGeo ? baseQuery : queryWithoutGeo), filter: peopleFilter, recent: !hasGeo }),
+    openDrops: () =>
       getAllDrops(peopleReq({ ...baseQuery, notme: "true" }), {
         extraConditions: [{ status: "open" }, dropExpiredFilter(), { ownerId: { $nin: excluded } }],
       }),
-    connections: () => listConnectionsTab(viewer._id, excluded),
   };
 
   const names = Object.keys(tasks);
@@ -353,8 +439,8 @@ async function listRadarTabs(req) {
     settled.map((result, i) => [
       names[i],
       result.status === "fulfilled"
-        ? result.value?.data
-        : { data: [], error: result.reason?.translationKey || "internal_server" },
+        ? { data: result.value?.data || [], meta: result.value?.meta || null }
+        : { data: [], meta: null, error: result.reason?.translationKey || "internal_server" },
     ]),
   );
 }
@@ -362,6 +448,7 @@ async function listRadarTabs(req) {
 module.exports = {
   listRadar,
   listRadarTabs,
+  excludedUserIds,
   roundCoord,
   haversineKm,
   DEFAULT_RADAR_RADIUS_KM,

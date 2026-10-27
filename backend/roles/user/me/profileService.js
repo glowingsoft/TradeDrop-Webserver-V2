@@ -4,6 +4,8 @@ const catalogRepo = require("../catalog/mongoCatalogRepository");
 const badgesService = require("../../admin/badges/badgesService");
 const { checkAndAwardBadges } = require("../../admin/badges/badgeEngine");
 const { UserBadge } = require("../../../models/UserBadge");
+const { User } = require("@UsersModel");
+const { Drop } = require("@models/Drop");
 const { getFullImageUrl } = require("@helperUtils/imageHelper");
 
 const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
@@ -42,6 +44,8 @@ function selfProfile(user) {
       bio: user.bio || "",
       language: user.language || "en",
       links: user.links || [],
+      category: user.category || null,
+      specialty: user.specialty || "",
     },
     accountState: {
       userType: user.accountState?.userType || "user",
@@ -76,6 +80,16 @@ function selfProfile(user) {
 async function getMe(userId) {
   const user = await requireUser(userId);
   const profile = selfProfile(user);
+  profile.openDropIds = (
+    await Drop.find({
+      ownerId: user._id,
+      status: "open",
+      deletedAt: null,
+      $or: [{ expiresAt: null }, { expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }],
+    })
+      .select("_id")
+      .lean()
+  ).map((drop) => String(drop._id));
 
   checkAndAwardBadges(userId, "founding_member").catch((err) => console.error("[checkAndAwardBadges] failed:", err));
 
@@ -166,8 +180,18 @@ async function patchMe(userId, body = {}) {
 
   if (body.name !== undefined) patch.name = String(body.name).trim();
   if (body.bio !== undefined) {
+    if (String(body.bio).length > MAX_BIO) throw AppError("bio_too_long", 400);
     const bio = String(body.bio);
     patch.bio = bio;
+  }
+  if (body.category !== undefined) {
+    if (body.category && !/^[a-f0-9]{24}$/i.test(String(body.category))) throw AppError("category_invalid", 400);
+    patch.category = body.category || null;
+  }
+  if (body.specialty !== undefined) {
+    const specialty = String(body.specialty).trim();
+    if (specialty.length > 120) throw AppError("specialty_too_long", 400);
+    patch.specialty = specialty;
   }
   const profileIcon = body.profileIcon !== undefined ? body.profileIcon : body.imageUrl;
   if (profileIcon !== undefined) {
@@ -188,6 +212,13 @@ async function patchMe(userId, body = {}) {
   if (body.areaLabel !== undefined) patch.areaLabel = String(body.areaLabel);
   if (body.lat !== undefined) patch.lat = body.lat === null ? null : Number(body.lat);
   if (body.lng !== undefined) patch.lng = body.lng === null ? null : Number(body.lng);
+  for (const field of ["lat", "lng"]) {
+    if (patch[field] !== undefined && patch[field] !== null && !Number.isFinite(patch[field])) {
+      throw AppError("location_invalid", 400);
+    }
+  }
+  if (patch.lat != null && (patch.lat < -90 || patch.lat > 90)) throw AppError("location_invalid", 400);
+  if (patch.lng != null && (patch.lng < -180 || patch.lng > 180)) throw AppError("location_invalid", 400);
   if (body.lat != undefined && body.lng != undefined) {
     if (body.lat != null && body.lng != null) {
       patch.location = [Number(body.lng), Number(body.lat)];
@@ -256,9 +287,8 @@ async function addPortfolioItem(userId, body = {}) {
   // ==========================================
   // IMAGE REQUIRED
   // ==========================================
-  if (!body.imageUrl || typeof body.imageUrl !== "string") {
-    throw AppError("image_url_required", 400);
-  }
+  const imageUrl = typeof body.imageUrl === "string" ? body.imageUrl.trim() : "";
+  if (!imageUrl) throw AppError("image_url_required", 400);
 
   // ==========================================
   // BUILD PORTFOLIO ITEM
@@ -266,7 +296,7 @@ async function addPortfolioItem(userId, body = {}) {
   const item = {
     _id: createId(),
 
-    imageUrl: String(body.imageUrl).trim(),
+    imageUrl,
 
     title: body.title ? String(body.title).trim() : "",
 
@@ -283,9 +313,16 @@ async function addPortfolioItem(userId, body = {}) {
   // ==========================================
   items.push(item);
 
-  const updated = await repo.update(user._id, {
-    portfolioItems: items,
-  });
+  const updatedDoc = await User.findOneAndUpdate(
+    {
+      _id: user._id,
+      $expr: { $lt: [{ $size: { $ifNull: ["$portfolioItems", []] } }, MAX_PORTFOLIO] },
+    },
+    { $push: { portfolioItems: item } },
+    { new: true, runValidators: true },
+  ).lean();
+  if (!updatedDoc) throw AppError("portfolio_max_reached", 400);
+  const updated = await repo.findById(user._id);
 
   return {
     item,

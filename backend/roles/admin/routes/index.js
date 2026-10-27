@@ -12,6 +12,7 @@ router.use("/help-center", require("../helpCenter/helpCenterRoutes"));
 router.use("/dashboard", require("../dashboard/dashboardsRoutes"));
 router.use("/dashboard-stats", require("../dashboardStats/dashboardsRoutes"));
 router.use("/support", require("../support/supportRoutes"));
+router.use("/reports", require("../reports/routes"));
 router.use("/catalog", require("../catalog/adminCatalogRoutes"));
 router.use("/announcements", require("../announcements/announcementsRoutes"));
 router.use("/badges", require("../badges/badgesRoutes"));
