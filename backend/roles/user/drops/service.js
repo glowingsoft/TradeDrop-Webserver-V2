@@ -25,6 +25,7 @@ const {
   assertTradeCapacity,
   stringArray,
   loadOwner,
+  dropExpiredFilter,
 } = require("../_shared/tradeShared");
 
 const OPEN_DROP_LIMIT = 2;
@@ -43,11 +44,11 @@ async function openDropIds(userId, session = null) {
 
 async function parseDraftContent(body = {}, owner) {
   const content = {};
-  const textFields = ["concept", "needText", "offerText", "areaLabel", "detail"];
+  const textFields = ["title", "needText", "offerText", "areaLabel", "idea"];
   for (const field of textFields) {
     if (body[field] === undefined) continue;
     const value = String(body[field]).trim();
-    const maxLength = field === "concept" ? 200 : field === "detail" ? 1000 : 2000;
+    const maxLength = field === "title" ? 200 : field === "idea" ? 1000 : 2000;
     if (value.length > maxLength) throw httpError(400, `${field}_too_long`);
     content[field] = value;
   }
@@ -67,11 +68,8 @@ async function parseDraftContent(body = {}, owner) {
     if (!["in_person", "remote"].includes(body.type)) throw httpError(400, "drop_type_invalid");
     content.type = body.type;
   }
-  if (body.circleId !== undefined) {
-    if (body.circleId && !mongoose.isValidObjectId(body.circleId)) throw httpError(400, "circle_id_invalid");
-    content.circleId = body.circleId ? new mongoose.Types.ObjectId(body.circleId) : null;
-  }
-  if (body.referenceImages !== undefined) content.referenceImages = stringArray(body.referenceImages, 10, "reference_images_invalid");
+  if (body.referenceImages !== undefined)
+    content.referenceImages = stringArray(body.referenceImages, 10, "reference_images_invalid");
   if (body.locationType !== undefined) content.locationType = parseLocationType(body.locationType);
   if (body.expiresIn !== undefined || body.expiration !== undefined) {
     content.expiresAt = parseExpiration(body.expiresIn ?? body.expiration);
@@ -88,8 +86,7 @@ async function parseDraftContent(body = {}, owner) {
     content.areaLabel = content.areaLabel || owner.areaLabel || "";
     content.lat = owner.lat ?? null;
     content.lng = owner.lng ?? null;
-    content.location =
-      owner.lat != null && owner.lng != null ? [Number(owner.lng), Number(owner.lat)] : undefined;
+    content.location = owner.lat != null && owner.lng != null ? [Number(owner.lng), Number(owner.lat)] : undefined;
   } else if (body.lat !== undefined || body.lng !== undefined) {
     if (
       body.lat == null ||
@@ -114,8 +111,15 @@ async function parseDraftContent(body = {}, owner) {
 
 async function createDrop(userId, body = {}) {
   const owner = await loadOwner(userId);
+  const requestedStatus = body.status || "draft";
+  if (!["draft", "open", "publish"].includes(requestedStatus)) {
+    throw httpError(400, "drop_status_invalid");
+  }
+
   const draft = await parseDraftContent(body, owner);
   draft.type = body.type || "in_person";
+  await assertNoDuplicateDrop(userId, draft);
+
   const [drop] = await Drop.create([
     {
       ...draft,
@@ -126,17 +130,39 @@ async function createDrop(userId, body = {}) {
       status: "draft",
     },
   ]);
+
+  if (requestedStatus === "open" || requestedStatus === "publish") {
+    return publishDrop(userId, drop._id);
+  }
+
   return { drop: toDropView(drop.toObject(), userId), openDropIds: await openDropIds(userId) };
 }
 
+async function assertNoDuplicateDrop(userId, draft, session = null, excludeDropId = null) {
+  if (!String(draft.needText || "").trim() || !String(draft.offerText || "").trim()) return;
+
+  const query = Drop.findOne({
+    ownerId: userId,
+    needText: draft.needText,
+    offerText: draft.offerText,
+    status: { $in: ["draft", "open"] },
+    deletedAt: null,
+    ...(excludeDropId ? { _id: { $ne: excludeDropId } } : {}),
+  });
+  if (session) query.session(session);
+
+  if (await query.lean()) {
+    throw httpError(409, "drop_duplicate");
+  }
+}
+
 function validateForPublishing(drop, owner, { allowExpired = false } = {}) {
-  for (const field of ["concept", "needText", "offerText"]) {
+  for (const field of ["title", "needText", "offerText"]) {
     if (!String(drop[field] || "").trim()) throw httpError(400, `${field}_required`);
   }
   if (!mongoose.isValidObjectId(drop.needCategoryId) || !mongoose.isValidObjectId(drop.offerCategoryId)) {
     throw httpError(400, "category_required");
   }
-  if (!drop.timingChip) throw httpError(400, "timing_chip_invalid");
   if (drop.type === "remote") {
     if (owner.lat == null || owner.lng == null) throw httpError(400, "owner_location_required");
     drop.areaLabel = owner.areaLabel || drop.areaLabel;
@@ -164,6 +190,7 @@ async function publishDrop(userId, dropId) {
     if (drop.status !== "draft") throw httpError(409, "invalid_status_transition");
 
     validateForPublishing(drop, owner);
+    await assertNoDuplicateDrop(userId, drop, session, drop._id);
     await User.updateOne({ _id: userId }, { $inc: { tradeLock: 1 } }, { session, timestamps: false });
     const existing = await openDropIds(userId, session);
     if (existing.length >= OPEN_DROP_LIMIT) {
@@ -291,7 +318,12 @@ async function reopenDrop(userId, dropId) {
     await User.updateOne({ _id: userId }, { $inc: { tradeLock: 1 } }, { session, timestamps: false });
     const existing = await openDropIds(userId, session);
     if (existing.length >= OPEN_DROP_LIMIT) {
-      return { reopened: false, reason: "open_drop_limit", openDropIds: existing, drop: toDropView(drop.toObject(), userId) };
+      return {
+        reopened: false,
+        reason: "open_drop_limit",
+        openDropIds: existing,
+        drop: toDropView(drop.toObject(), userId),
+      };
     }
     drop.status = "open";
     drop.publishedAt = new Date();
@@ -335,11 +367,11 @@ async function patchDrop(userId, dropId, body = {}) {
     if (!String(body[field]).trim()) throw httpError(400, key);
     set[field] = String(body[field]).trim();
   }
-  if (body.concept !== undefined) {
-    const concept = String(body.concept).trim();
-    if (!concept) throw httpError(400, "concept_required");
-    if (concept.length > 120) throw httpError(400, "concept_too_long");
-    set.concept = concept;
+  if (body.title !== undefined) {
+    const title = String(body.title).trim();
+    if (!title) throw httpError(400, "title_required");
+    if (title.length > 120) throw httpError(400, "title_too_long");
+    set.title = title;
   }
   if (body.locationType !== undefined) set.locationType = parseLocationType(body.locationType || undefined);
   if (body.type !== undefined) {
@@ -369,9 +401,9 @@ async function patchDrop(userId, dropId, body = {}) {
     if (body.startTime !== undefined) set.startTime = startTime;
     if (body.endTime !== undefined) set.endTime = endTime;
   }
-  if (body.detail !== undefined) {
-    if (String(body.detail).length > 500) throw httpError(400, "detail_too_long");
-    set.detail = String(body.detail);
+  if (body.idea !== undefined) {
+    if (String(body.idea).length > 500) throw httpError(400, "idea_too_long");
+    set.idea = String(body.idea);
   }
   for (const f of ["needCategoryId", "offerCategoryId"]) {
     if (body[f] === undefined) continue;
@@ -559,8 +591,23 @@ async function listMyDrops(userId, req) {
 
 async function getAllDrops(req, { extraConditions = [] } = {}) {
   const { page, limit } = parsePaginationParams(req);
-  const { keyword, needCategoryId, offerCategoryId, areaLabel, ownerId, timingChip, lat, lng, radius, tag, notme, kind } =
-    req.query;
+  const {
+    keyword,
+    needCategoryId,
+    offerCategoryId,
+    categories: requestedCategoriesParam,
+    areaLabel,
+    ownerId,
+    timingChip,
+    lat,
+    lng,
+    radius,
+    tag,
+    notme,
+    kind,
+    type,
+    date,
+  } = req.query;
 
   const match = publicDropFilter();
   const and = [...extraConditions];
@@ -575,9 +622,41 @@ async function getAllDrops(req, { extraConditions = [] } = {}) {
   if (ownerId && mongoose.isValidObjectId(ownerId)) match.ownerId = new mongoose.Types.ObjectId(ownerId);
   if (timingChip && mongoose.isValidObjectId(timingChip)) match.timingChip = new mongoose.Types.ObjectId(timingChip);
   if (kind) match.kind = String(kind);
+  if (type && type !== "any") {
+    if (!["in_person", "remote"].includes(String(type))) throw httpError(400, "drop_type_invalid");
+    match.type = String(type);
+  }
+  if (tag === "isNew") {
+    match.status = "open";
+    Object.assign(match, dropExpiredFilter());
+  }
+  if (requestedCategoriesParam) {
+    const categoryIds = (
+      Array.isArray(requestedCategoriesParam) ? requestedCategoriesParam : String(requestedCategoriesParam).split(",")
+    )
+      .map((value) => String(value).trim())
+      .filter((value) => mongoose.isValidObjectId(value))
+      .map((value) => new mongoose.Types.ObjectId(value));
+    if (!categoryIds.length) throw httpError(400, "category_required");
+    and.push({ $or: [{ needCategoryId: { $in: categoryIds } }, { offerCategoryId: { $in: categoryIds } }] });
+  }
+  if (date && date !== "anytime") {
+    const now = new Date();
+    const end = new Date(now);
+    if (date === "next7days" || date === "next7dys") {
+      end.setDate(end.getDate() + 7);
+    } else if (date === "next30days") {
+      end.setDate(end.getDate() + 30);
+    } else {
+      throw httpError(400, "drop_date_filter_invalid");
+    }
+    match.date = { $gte: now, $lte: end };
+  }
   if (keyword?.trim()) {
     const regex = { $regex: escapeRegex(keyword.trim()), $options: "i" };
-    and.push({ $or: [{ needText: regex }, { offerText: regex }, { detail: regex }, { ownerHandle: regex }] });
+    and.push({
+      $or: [{ title: regex }, { needText: regex }, { offerText: regex }, { idea: regex }, { ownerHandle: regex }],
+    });
   }
   if (tag === "today") {
     const tz = req.user?.timezone || "UTC";
@@ -663,9 +742,8 @@ async function getAllDrops(req, { extraConditions = [] } = {}) {
           },
           {
             $project: {
-              concept: 1,
+              title: 1,
               type: 1,
-              circleId: 1,
               locationType: 1,
               referenceImages: 1,
               startTime: 1,
@@ -686,7 +764,7 @@ async function getAllDrops(req, { extraConditions = [] } = {}) {
               areaLabel: 1,
               lat: 1,
               lng: 1,
-              detail: 1,
+              idea: 1,
               status: 1,
               createdAt: 1,
               updatedAt: 1,
@@ -701,8 +779,8 @@ async function getAllDrops(req, { extraConditions = [] } = {}) {
 
   const total = result?.total?.[0]?.count || 0;
   const [categories, chips, areas] = await Promise.all([
-    Category.find({ active: true }, { _id: 1, name: 1 }).lean(),
-    TimingChip.find({ status: "active" }).sort({ sortOrder: 1 }).select("value label").lean(),
+    Category.find({ status: "active" }, { _id: 1, name: 1 }).lean(),
+    TimingChip.find({ status: "active" }).sort({ sortOrder: 1 }).select("_id value label").lean(),
     Drop.distinct("areaLabel", { ...publicDropFilter(), areaLabel: { $nin: [null, ""] } }),
   ]);
   const meta = generateMeta(page, limit, total);

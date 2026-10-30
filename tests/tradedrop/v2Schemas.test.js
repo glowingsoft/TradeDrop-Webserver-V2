@@ -18,7 +18,7 @@ describe("V2 model validation", () => {
   it("requires a meeting location for in-person Drops but permits remote Drop fields", async () => {
     const fields = {
       ownerId: objectId(),
-      concept: "Photo shoot",
+      title: "Photo shoot",
       needText: "A model",
       offerText: "Portraits",
       needCategoryId: objectId(),

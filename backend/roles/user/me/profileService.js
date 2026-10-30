@@ -44,7 +44,6 @@ function selfProfile(user) {
       bio: user.bio || "",
       language: user.language || "en",
       links: user.links || [],
-      category: user.category || null,
       specialty: user.specialty || "",
     },
     accountState: {
@@ -183,10 +182,6 @@ async function patchMe(userId, body = {}) {
     if (String(body.bio).length > MAX_BIO) throw AppError("bio_too_long", 400);
     const bio = String(body.bio);
     patch.bio = bio;
-  }
-  if (body.category !== undefined) {
-    if (body.category && !/^[a-f0-9]{24}$/i.test(String(body.category))) throw AppError("category_invalid", 400);
-    patch.category = body.category || null;
   }
   if (body.specialty !== undefined) {
     const specialty = String(body.specialty).trim();

@@ -181,7 +181,7 @@ async function getNetwork(userId, req) {
       deletedAt: null,
       $or: [{ expiresAt: null }, { expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }],
     })
-      .select("_id concept date")
+      .select("_id title date")
       .sort({ createdAt: -1 })
       .lean(),
   ]);
@@ -192,7 +192,7 @@ async function getNetwork(userId, req) {
       .filter(Boolean),
     pendingRequests: pendingRequests.map(requestView),
     circles: circles.filter((circle) => !keyword || `${circle.name} ${circle.purpose} ${circle.city}`.toLowerCase().includes(keyword.toLowerCase())),
-    openDrops: openDrops.filter((drop) => !keyword || String(drop.concept || "").toLowerCase().includes(keyword.toLowerCase())),
+    openDrops: openDrops.filter((drop) => !keyword || String(drop.title || "").toLowerCase().includes(keyword.toLowerCase())),
     savedPeople: saved
       .filter((favorite) => favorite.target && (!keyword || `${favorite.target.name} ${favorite.target.handle}`.toLowerCase().includes(keyword.toLowerCase())))
       .map((favorite) => favorite.target),

@@ -2,11 +2,7 @@ const { User, generateResetToken, USER_TYPES } = require("../models/UserModel");
 const mongoose = require("mongoose");
 const moment = require("moment-timezone");
 const bcrypt = require("bcryptjs");
-const {
-  sendResponse,
-  validateParams,
-  getReadableErrorMessage,
-} = require("../helperUtils/responseUtil");
+const { sendResponse, validateParams, getReadableErrorMessage } = require("../helperUtils/responseUtil");
 const { formatUserResponse } = require("../helperUtils/userResponseUtil");
 const { sendEmailViaBrevo } = require("../helperUtils/emailUtil");
 const {
@@ -28,11 +24,7 @@ const createAdmin = async (req, res) => {
     const allowedIPs = ["223.123.44.6", "127.0.0.1", "::1", "192.168.15.40"];
 
     // Express behind reverse proxies (like Nginx)
-    const ip = (
-      req.headers["x-forwarded-for"] ||
-      req.socket.remoteAddress ||
-      ""
-    )
+    const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "")
       .split(",")[0]
       .trim()
       .replace("::ffff:", "");
@@ -57,14 +49,7 @@ const createAdmin = async (req, res) => {
 
     //validation
     const validationOptions = {
-      rawData: [
-        "email",
-        "name",
-        "password",
-        "timezone",
-        "deviceType",
-        "deviceId",
-      ],
+      rawData: ["email", "name", "password", "timezone", "deviceType", "deviceId"],
       minLengthFields: {
         password: 6, // Password must be at least 6 characters long
       },
@@ -73,15 +58,7 @@ const createAdmin = async (req, res) => {
       return;
     }
 
-    const {
-      email,
-      name,
-      profileIcon,
-      password,
-      timezone,
-      deviceId,
-      deviceType,
-    } = req.body;
+    const { email, name, profileIcon, password, timezone, deviceId, deviceType } = req.body;
 
     const existing = await User.findOne({ email });
     if (existing) {
@@ -105,12 +82,7 @@ const createAdmin = async (req, res) => {
     await user.save();
 
     //deviceId and deviceToken store in db
-    if (
-      typeof deviceId === "string" &&
-      deviceId.trim() &&
-      deviceId !== "test" &&
-      typeof deviceType === "string"
-    ) {
+    if (typeof deviceId === "string" && deviceId.trim() && deviceId !== "test" && typeof deviceType === "string") {
       createOrSkipDevice(user._id, deviceId.trim(), deviceType);
     }
 
@@ -175,13 +147,7 @@ const companyDetails = async (req, res) => {
 
     if (!user.companyDetails) {
       const validationOptions = {
-        rawData: [
-          "name",
-          "oib",
-          "bankAccountNumber",
-          "representativeName",
-          "location",
-        ],
+        rawData: ["name", "oib", "bankAccountNumber", "representativeName", "location"],
       };
       if (!validateParams(req, res, validationOptions)) {
         return;
@@ -191,28 +157,16 @@ const companyDetails = async (req, res) => {
     // Update only provided company details, keep existing fields if not provided
     user.companyDetails = {
       logo: logo !== undefined ? logo : user.companyDetails?.logo,
-      coverImage:
-        coverImage !== undefined ? coverImage : user.companyDetails?.coverImage,
-      description:
-        description !== undefined
-          ? description
-          : user.companyDetails?.description,
-      category:
-        category !== undefined ? category : user.companyDetails?.category,
+      coverImage: coverImage !== undefined ? coverImage : user.companyDetails?.coverImage,
+      description: description !== undefined ? description : user.companyDetails?.description,
+      category: category !== undefined ? category : user.companyDetails?.category,
       name: name !== undefined ? name : user.companyDetails?.name,
       oib: oib !== undefined ? oib : user.companyDetails?.oib,
-      bankAccountNumber:
-        bankAccountNumber !== undefined
-          ? bankAccountNumber
-          : user.companyDetails?.bankAccountNumber,
+      bankAccountNumber: bankAccountNumber !== undefined ? bankAccountNumber : user.companyDetails?.bankAccountNumber,
       representativeName:
-        representativeName !== undefined
-          ? representativeName
-          : user.companyDetails?.representativeName,
-      location:
-        location !== undefined ? location : user.companyDetails?.location,
-      suppliers:
-        suppliers !== undefined ? suppliers : user.companyDetails?.suppliers,
+        representativeName !== undefined ? representativeName : user.companyDetails?.representativeName,
+      location: location !== undefined ? location : user.companyDetails?.location,
+      suppliers: suppliers !== undefined ? suppliers : user.companyDetails?.suppliers,
     };
 
     await user.save();
@@ -237,17 +191,9 @@ const companyDetails = async (req, res) => {
 //login
 const login = async (req, res) => {
   try {
-    const { email, password, deviceId, deviceType, timezone, userType } =
-      req.body;
+    const { email, password, deviceId, deviceType, timezone, userType } = req.body;
     const validationOptions = {
-      rawData: [
-        "email",
-        "password",
-        "deviceId",
-        "deviceType",
-        "timezone",
-        "userType",
-      ],
+      rawData: ["email", "password"],
       enumFields: {
         userType: User.USER_TYPES,
       },
@@ -257,13 +203,7 @@ const login = async (req, res) => {
     }
     let populateFields = [];
 
-    const user = await User.findByCredentials(
-      email,
-      password,
-      userType,
-      timezone,
-      populateFields,
-    );
+    const user = await User.findByCredentials(email, password, userType, timezone, populateFields);
 
     // Check if an error occurred
     if (user.error) {
@@ -281,7 +221,7 @@ const login = async (req, res) => {
         });
       }
     }
-    
+
     // Restrict admin login
     if (user.accountState.userType === "admin") {
       const adminCreationToken = req.header("x-admin-access-token");
@@ -296,12 +236,35 @@ const login = async (req, res) => {
     }
 
     // Check the user's verification status
-    const verificationStatus = user.verificationStatus["email"];
+    const verificationStatus =
+      user.verificationStatus?.email || user.accountState?.verificationStatus?.email || "pending";
     if (verificationStatus === "pending") {
+      const otp = user.generateOtp("email", user.timezone);
+      if (otp?.error === "too_many_otp_requests") {
+        return sendResponse({
+          res,
+          statusCode: 429,
+          translationKey: "too_many_otp_requests",
+        });
+      }
+
+      await user.save();
+      const config = OTP_PURPOSE_CONFIG.signup;
+      // await sendEmailViaBrevo(
+      //   [user.email],
+      //   config.subject,
+      //   otpEmailTemplate({
+      //     otp,
+      //     title: config.title,
+      //     message: config.message,
+      //   }),
+      // );
+
       return sendResponse({
         res,
         statusCode: 401,
-        translationKey: "your_account",
+        translationKey: "email_verification_pending",
+        data: { email: user.email, otp: otp },
       });
     }
 
@@ -343,16 +306,10 @@ const login = async (req, res) => {
     const userObject = user.toJSON();
     const token = user.generateAuthToken();
 
-
     // Format the user response using the utility function
     let response = formatUserResponse(userObject, token, [], ["resetToken"]);
     //deviceId and deviceToken store in db
-    if (
-      typeof deviceId === "string" &&
-      deviceId.trim() &&
-      deviceId !== "test" &&
-      typeof deviceType === "string"
-    ) {
+    if (typeof deviceId === "string" && deviceId.trim() && deviceId !== "test" && typeof deviceType === "string") {
       // Save device information (not part of the transaction)
       createOrSkipDevice(userObject._id, deviceId, deviceType);
     } else {
@@ -418,12 +375,35 @@ const loginTest = async (req, res) => {
     }
 
     // Check the user's verification status
-    const verificationStatus = user.verificationStatus["email"];
+    const verificationStatus =
+      user.verificationStatus?.email || user.accountState?.verificationStatus?.email || "pending";
     if (verificationStatus === "pending") {
+      const otp = user.generateOtp("email", user.timezone);
+      if (otp?.error === "too_many_otp_requests") {
+        return sendResponse({
+          res,
+          statusCode: 429,
+          translationKey: "too_many_otp_requests",
+        });
+      }
+
+      await user.save();
+      const config = OTP_PURPOSE_CONFIG.signup;
+      await sendEmailViaBrevo(
+        [user.email],
+        config.subject,
+        otpEmailTemplate({
+          otp,
+          title: config.title,
+          message: config.message,
+        }),
+      );
+
       return sendResponse({
         res,
         statusCode: 401,
-        translationKey: "your_account",
+        translationKey: "email_verification_pending",
+        data: { email: user.email },
       });
     }
 
@@ -460,12 +440,7 @@ const loginTest = async (req, res) => {
     const userObject = user.toJSON();
 
     // Format the user response using the utility function
-    const response = formatUserResponse(
-      userObject,
-      token,
-      [],
-      ["resetToken", "organizations"],
-    );
+    const response = formatUserResponse(userObject, token, [], ["resetToken", "organizations"]);
 
     // Send successful response with token and user data
     return sendResponse({
@@ -517,9 +492,7 @@ const generateOtp = async (req, res) => {
     // Load user
     let user;
     if (type === "email") {
-      user = await User.findOne({ email: email.toLowerCase() }).select(
-        "email accountState otpInfo timezone",
-      );
+      user = await User.findOne({ email: email.toLowerCase() }).select("email accountState otpInfo timezone");
     } else {
       user = await User.findOne({
         "phoneNumber.code": phoneNumber.code,
@@ -655,9 +628,7 @@ const verifyOtp = async (req, res) => {
 
     if (type === "email") {
       user = await User.findOne({ email: email.toLowerCase() })
-        .select(
-          "email accountState otpInfo verificationStatus timezone resetToken",
-        )
+        .select("email accountState otpInfo verificationStatus timezone resetToken")
         .session(session);
     }
 
@@ -666,9 +637,7 @@ const verifyOtp = async (req, res) => {
         "phoneNumber.code": phoneNumber.code,
         "phoneNumber.number": phoneNumber.number,
       })
-        .select(
-          "phoneNumber accountState otpInfo verificationStatus timezone resetToken",
-        )
+        .select("phoneNumber accountState otpInfo verificationStatus timezone resetToken")
         .session(session);
     }
 
@@ -682,8 +651,7 @@ const verifyOtp = async (req, res) => {
       });
     }
 
-    const userOtpInfo =
-      type === "email" ? user.otpInfo.emailOtp : user.otpInfo.phoneNumberOtp;
+    const userOtpInfo = type === "email" ? user.otpInfo.emailOtp : user.otpInfo.phoneNumberOtp;
 
     if (type === "email") {
       if (userOtpInfo.otp !== otp.toString()) {
@@ -803,9 +771,7 @@ const verifyEmailViaLink = async (req, res) => {
   user.emailVerification.otpRequestCount = 0;
   await user.save();
 
-  return res.redirect(
-    `${process.env.EMAIL_VERIFICATION_REDIRECT_URL}?verification=success`,
-  );
+  return res.redirect(`${process.env.EMAIL_VERIFICATION_REDIRECT_URL}?verification=success`);
 };
 
 const resendEmailVerificationLink = async (req, res) => {
@@ -912,11 +878,7 @@ const verifyPasswordResetLink = async (req, res) => {
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
   const user = await User.findOne({ "passwordReset.tokenHash": tokenHash });
-  if (
-    !user ||
-    user.passwordReset.used ||
-    Date.now() > user.passwordReset.expiresAt
-  ) {
+  if (!user || user.passwordReset.used || Date.now() > user.passwordReset.expiresAt) {
     return sendResponse({
       res,
       statusCode: 400,
@@ -935,11 +897,7 @@ const resetPasswordViaLink = async (req, res) => {
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
   const user = await User.findOne({ "passwordReset.tokenHash": tokenHash });
-  if (
-    !user ||
-    user.passwordReset.used ||
-    Date.now() > user.passwordReset.expiresAt
-  ) {
+  if (!user || user.passwordReset.used || Date.now() > user.passwordReset.expiresAt) {
     return sendResponse({
       res,
       statusCode: 400,
@@ -996,10 +954,7 @@ const resetPassword = async (req, res) => {
     await user.save();
 
     // Fetch the updated user with profile icon populated and generate a token simultaneously
-    const [updatedUser, token] = await Promise.all([
-      User.findById(user._id),
-      user.generateAuthToken(),
-    ]);
+    const [updatedUser, token] = await Promise.all([User.findById(user._id), user.generateAuthToken()]);
 
     // Apply toJSON method to strip out sensitive data
     const userObject = updatedUser.toJSON();
@@ -1049,6 +1004,34 @@ const logout = async (req, res) => {
   }
 };
 
+const refresh = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return sendResponse({
+        res,
+        statusCode: 401,
+        translationKey: "account_not_found",
+      });
+    }
+
+    const token = user.generateAuthToken();
+    return sendResponse({
+      res,
+      statusCode: 200,
+      translationKey: "login_success",
+      data: formatUserResponse(user.toJSON(), token),
+    });
+  } catch (error) {
+    return sendResponse({
+      res,
+      statusCode: 500,
+      translationKey: "internal_server_error",
+      error,
+    });
+  }
+};
+
 const hardDeleteAccount = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -1093,30 +1076,13 @@ const hardDeleteAccount = async (req, res) => {
 };
 
 const socialAuth = async (req, res) => {
-  let {
-    provider,
-    socialId,
-    email,
-    name,
-    deviceId,
-    deviceType,
-    timezone,
-    userType,
-  } = req.body;
+  let { provider, socialId, email, name, deviceId, deviceType, timezone, userType } = req.body;
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
     const validationOptions = {
-      rawData: [
-        "provider",
-        "socialId",
-        "name",
-        "deviceId",
-        "deviceType",
-        "timezone",
-        "userType",
-      ],
+      rawData: ["provider", "socialId", "name", "deviceId", "deviceType", "timezone", "userType"],
       enumFields: {
         provider: ["google", "facebook", "apple"], // Allowed values for provider
         userType: ["user", "coach"],
@@ -1197,12 +1163,7 @@ const socialAuth = async (req, res) => {
         updateData[providerIdField] = socialId;
       }
 
-      existingUser = await User.findByIdAndUpdate(
-        existingUser._id,
-        { $set: updateData },
-        { new: true, session }
-      );
-
+      existingUser = await User.findByIdAndUpdate(existingUser._id, { $set: updateData }, { new: true, session });
 
       const token = existingUser.generateAuthToken();
 
@@ -1211,12 +1172,7 @@ const socialAuth = async (req, res) => {
 
       const response = formatUserResponse(userObject, token);
 
-      if (
-        typeof deviceId === "string" &&
-        deviceId.trim() &&
-        deviceId !== "test" &&
-        typeof deviceType === "string"
-      ) {
+      if (typeof deviceId === "string" && deviceId.trim() && deviceId !== "test" && typeof deviceType === "string") {
         // Save device information
         createOrSkipDevice(existingUser._id, deviceId, deviceType);
       }
@@ -1267,12 +1223,7 @@ const socialAuth = async (req, res) => {
       const jUser = newUser.toJSON();
       const response = formatUserResponse(jUser, token);
 
-      if (
-        typeof deviceId === "string" &&
-        deviceId.trim() &&
-        deviceId !== "test" &&
-        typeof deviceType === "string"
-      ) {
+      if (typeof deviceId === "string" && deviceId.trim() && deviceId !== "test" && typeof deviceType === "string") {
         // Save device information
         createOrSkipDevice(newUser._id, deviceId, deviceType);
       }
@@ -1314,9 +1265,7 @@ const checkEmailExistsAndVerified = async (req, res) => {
     const user = await User.findOne({
       email: email.trim().toLowerCase(),
     }).select("verificationStatus");
-    const existsAndVerified = !!(
-      user && user.verificationStatus.email === "verified"
-    );
+    const existsAndVerified = !!(user && user.verificationStatus.email === "verified");
     return sendResponse({
       res,
       statusCode: 200,
@@ -1339,7 +1288,6 @@ const changePassword = async (req, res) => {
     const { oldPassword, newPassword } = req.body;
 
     const userId = new mongoose.Types.ObjectId(req.user._id);
-
 
     const validationOptions = {
       rawData: ["oldPassword", "newPassword"],
@@ -1402,6 +1350,7 @@ module.exports = {
   verifyPasswordResetLink,
   resetPasswordViaLink,
   resetPassword,
+  refresh,
   logout,
   hardDeleteAccount,
   socialAuth,

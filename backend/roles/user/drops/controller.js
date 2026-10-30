@@ -1,12 +1,26 @@
 ﻿const service = require("./service");
-const { one, list } = require("../_shared/controllerKit");
+const { handleError, one, list } = require("../_shared/controllerKit");
+const { sendResponse } = require("@helperUtils/responseUtil");
 
 module.exports = {
   listDrops: list("drops_fetched", (req) => service.listPublic(req, req.user?._id)),
   listAllDrops: list("drops_fetched", (req) => service.getAllDrops(req)),
   listMyDrops: list("drops_fetched", (req) => service.listMyDrops(req.user._id, req)),
   getDrop: one(200, "drop_fetched", (req) => service.getDrop(req.params.id, req.user?._id)),
-  createDrop: one(201, "drop_created", (req) => service.createDrop(req.user._id, req.body || {})),
+  createDrop: async (req, res) => {
+    try {
+      const data = await service.createDrop(req.user._id, req.body || {});
+      const published = data.published === true;
+      return sendResponse({
+        res,
+        statusCode: published ? 200 : 201,
+        translationKey: published ? "drop_published" : "drop_created",
+        data,
+      });
+    } catch (error) {
+      return handleError(res, error);
+    }
+  },
   publishDrop: one(200, "drop_published", (req) => service.publishDrop(req.user._id, req.params.id)),
   closeDrop: one(200, "drop_closed", (req) => service.closeDrop(req.user._id, req.params.id)),
   reopenDrop: one(200, "drop_reopened", (req) => service.reopenDrop(req.user._id, req.params.id)),

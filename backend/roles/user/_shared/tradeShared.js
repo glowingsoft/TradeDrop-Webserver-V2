@@ -197,11 +197,10 @@ function toDropView(drop, viewerId = null, { trade = null } = {}) {
     kind: drop.kind,
     visibility: drop.visibility,
     type: drop.type || "in_person",
-    circleId: idStrOrNull(drop.circleId),
     targetUserId: idStrOrNull(drop.targetUserId),
     needText: drop.needText,
     offerText: drop.offerText,
-    concept: drop.concept || "",
+    title: drop.title || "",
     locationType: drop.locationType || "neighborhood",
     referenceImages: (drop.referenceImages || []).map((m) => getFullImageUrl(m)),
     startTime: drop.startTime || null,
@@ -214,7 +213,7 @@ function toDropView(drop, viewerId = null, { trade = null } = {}) {
     // Other users see ~3 decimal degrees; the owner sees stored precision
     lat: roundCoord(drop.lat),
     lng: roundCoord(drop.lng),
-    detail: drop.detail || "",
+    idea: drop.idea || "",
     status: drop.status,
     statusLabel: dropStatusLabel(drop, trade),
     date: drop.date || null,
@@ -302,10 +301,10 @@ function toDisputeView(d, { includeInternal = false } = {}) {
 }
 
 async function parseDropContent(body = {}) {
-  const { needText, offerText, needCategoryId, offerCategoryId, timingChip, areaLabel, detail, date, lat, lng } = body;
+  const { needText, offerText, needCategoryId, offerCategoryId, timingChip, areaLabel, idea, date, lat, lng } = body;
 
-  if (!body.concept || !String(body.concept).trim()) throw httpError(400, "concept_required");
-  if (String(body.concept).trim().length > 200) throw httpError(400, "concept_too_long");
+  if (!body.title || !String(body.title).trim()) throw httpError(400, "title_required");
+  if (String(body.title).trim().length > 200) throw httpError(400, "title_too_long");
   if (!needText || !String(needText).trim()) throw httpError(400, "need_text_required");
   if (!offerText || !String(offerText).trim()) throw httpError(400, "offer_text_required");
   if (!mongoose.isValidObjectId(needCategoryId) || !mongoose.isValidObjectId(offerCategoryId)) {
@@ -319,7 +318,7 @@ async function parseDropContent(body = {}) {
   }).lean();
   if (!chip) throw httpError(400, "timing_chip_invalid");
 
-  if (detail && String(detail).length > 1000) throw httpError(400, "detail_too_long");
+  if (idea && String(idea).length > 1000) throw httpError(400, "idea_too_long");
   if (date && Number.isNaN(new Date(date).getTime())) throw httpError(400, "date_invalid");
 
   const hasGeo = lat != null && lng != null && !Number.isNaN(Number(lat)) && !Number.isNaN(Number(lng));
@@ -329,10 +328,9 @@ async function parseDropContent(body = {}) {
   const endTime = parseOptionalDate(body.endTime, "end_time_invalid");
   assertTimeRange(startTime, endTime);
   return {
-    concept: String(body.concept).trim(),
+    title: String(body.title).trim(),
     locationType: parseLocationType(body.locationType),
     type: dropType,
-    circleId: body.circleId && mongoose.isValidObjectId(body.circleId) ? new mongoose.Types.ObjectId(body.circleId) : null,
     referenceImages: stringArray(body.referenceImages, 10, "reference_images_invalid"),
     startTime,
     endTime,
@@ -343,7 +341,7 @@ async function parseDropContent(body = {}) {
     offerCategoryId: String(offerCategoryId),
     timingChip: chip._id,
     areaLabel: String(areaLabel).trim(),
-    detail: detail ? String(detail) : "",
+    idea: idea ? String(idea) : "",
     date: date ? new Date(date) : null,
     lat: hasGeo ? Number(lat) : null,
     lng: hasGeo ? Number(lng) : null,

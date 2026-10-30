@@ -407,7 +407,7 @@ async function getEvent(eventId, userId = null) {
     deletedAt: null,
     $or: [{ expiresAt: null }, { expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }],
   })
-    .select("_id ownerId concept date")
+    .select("_id ownerId title date")
     .sort({ createdAt: -1 })
     .lean();
   const view = eventView(event, {
@@ -440,7 +440,7 @@ async function getEvent(eventId, userId = null) {
   view.circleOpenDrops = drops.map((drop) => ({
     _id: idStr(drop._id),
     ownerId: idStr(drop.ownerId),
-    title: drop.concept || "",
+    title: drop.title || "",
     date: drop.date || null,
   }));
   return view;

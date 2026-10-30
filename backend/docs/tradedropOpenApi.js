@@ -108,8 +108,9 @@ module.exports = {
         type: "object",
         required: [],
         properties: {
+          status: { type: "string", enum: ["draft", "open", "publish"], default: "draft" },
           type: { type: "string", enum: ["in_person", "remote"], default: "in_person" },
-          concept: { type: "string", maxLength: 120 },
+          title: { type: "string", maxLength: 120 },
           locationType: { type: "string", enum: ["neighborhood", "specific", "remote"] },
           referenceImages: { type: "array", items: { type: "string" }, maxItems: 10 },
           startTime: { type: "string", format: "date-time", nullable: true },
@@ -124,10 +125,9 @@ module.exports = {
             description: "TimingChip.value from GET /api/v1/timing-chips",
           },
           areaLabel: { type: "string" },
-          circleId: { type: "string", nullable: true },
           lat: { type: "number" },
           lng: { type: "number" },
-          detail: { type: "string" },
+          idea: { type: "string" },
           usageRights: { type: "string" },
           media: { type: "array", items: { type: "string" } },
         },
@@ -464,7 +464,7 @@ module.exports = {
                           date: { type: "string", format: "date-time" },
                           timingChip: { type: "string" },
                           availableDates: { type: "array", items: { type: "string" } },
-                          detail: { type: "string" },
+                          idea: { type: "string" },
                           usageRights: { type: "string" },
                           media: { type: "array", items: { type: "string" } },
                         },
@@ -595,6 +595,42 @@ module.exports = {
         },
       },
     },
+    "/radar/people": {
+      get: {
+        tags: ["Radar"],
+        summary: "Radar people with people-only filters",
+        parameters: [
+          { name: "lat", in: "query", schema: { type: "number" } },
+          { name: "lng", in: "query", schema: { type: "number" } },
+          { name: "radius", in: "query", schema: { type: "number" } },
+          { name: "categories", in: "query", schema: { type: "array", items: { type: "string" } } },
+          { name: "openToWork", in: "query", schema: { type: "boolean" } },
+          { name: "connectionsOnly", in: "query", schema: { type: "boolean" } },
+          { name: "hasAnOpenDrop", in: "query", schema: { type: "boolean" } },
+        ],
+        responses: { 200: { description: "Radar people" } },
+      },
+    },
+    "/radar/drops": {
+      get: {
+        tags: ["Radar"],
+        summary: "Radar Drops with Drop-only filters",
+        parameters: [
+          { name: "lat", in: "query", schema: { type: "number" } },
+          { name: "lng", in: "query", schema: { type: "number" } },
+          { name: "radius", in: "query", schema: { type: "number" } },
+          { name: "categories", in: "query", schema: { type: "array", items: { type: "string" } } },
+          { name: "type", in: "query", schema: { type: "string", enum: ["any", "in_person", "remote"] } },
+          {
+            name: "date",
+            in: "query",
+            schema: { type: "string", enum: ["anytime", "next7days", "next7dys", "next30days"] },
+          },
+          { name: "tag", in: "query", schema: { type: "string", enum: ["isNew"] } },
+        ],
+        responses: { 200: { description: "Radar Drops" } },
+      },
+    },
     "/radar": {
       get: {
         tags: ["Radar"],
@@ -604,6 +640,13 @@ module.exports = {
           { name: "lng", in: "query", schema: { type: "number" } },
           { name: "radius", in: "query", schema: { type: "number", description: "km, default 8" } },
           {
+            name: "categories",
+            in: "query",
+            style: "form",
+            explode: true,
+            schema: { type: "array", items: { type: "string" } },
+          },
+          {
             name: "category",
             in: "query",
             schema: {
@@ -612,6 +655,15 @@ module.exports = {
             },
           },
           { name: "area", in: "query", schema: { type: "string" } },
+          { name: "openToWork", in: "query", schema: { type: "boolean" } },
+          { name: "connectionsOnly", in: "query", schema: { type: "boolean" } },
+          { name: "hasAnOpenDrop", in: "query", schema: { type: "boolean" } },
+          { name: "type", in: "query", schema: { type: "string", enum: ["any", "in_person", "remote"] } },
+          {
+            name: "date",
+            in: "query",
+            schema: { type: "string", enum: ["anytime", "next7days", "next7dys", "next30days"] },
+          },
         ],
         responses: {
           200: { description: "Nearby People with connection state and open Drop IDs, plus Open Drops; no email" },

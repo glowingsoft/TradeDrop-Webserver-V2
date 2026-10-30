@@ -258,7 +258,7 @@ async function getCircle(circleId, viewerId = null) {
       $or: [{ expiresAt: null }, { expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }],
     })
       .sort({ createdAt: -1 })
-      .select("_id ownerId concept status date")
+      .select("_id ownerId title status date")
       .lean(),
   ]);
   const view = circleView(circle, { includeMembers: Boolean(isMember) });
@@ -268,7 +268,7 @@ async function getCircle(circleId, viewerId = null) {
   view.openDrops = openDrops.map((drop) => ({
     _id: idStr(drop._id),
     ownerId: idStr(drop.ownerId),
-    title: drop.concept || "",
+    title: drop.title || "",
     status: drop.status,
     date: drop.date || null,
   }));

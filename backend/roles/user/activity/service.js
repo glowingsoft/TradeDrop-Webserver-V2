@@ -55,7 +55,7 @@ async function received(userId, page, limit) {
     Drop.find({ ownerId: userId, deletedAt: null })
       .sort({ updatedAt: -1 })
       .limit(10)
-      .select("_id concept status date updatedAt")
+      .select("_id title status date updatedAt")
       .lean(),
   ]);
   const eventFilter = {
@@ -89,7 +89,7 @@ async function received(userId, page, limit) {
       eventRequests: receivedEventRequests,
       latestDropActivity: latestDrops.map((drop) => ({
         _id: idStr(drop._id),
-        title: drop.concept || "",
+        title: drop.title || "",
         status: drop.status,
         date: drop.date || null,
         newTapInCount: countsByDrop.get(String(drop._id)) || 0,

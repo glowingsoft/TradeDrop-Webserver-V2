@@ -7,8 +7,7 @@ const dropSchema = new mongoose.Schema(
     kind: { type: String, enum: ["drop", "proposal", "collaboration"], default: "drop", required: true },
     visibility: { type: String, enum: ["public", "direct"], default: "public", required: true },
     // Set for direct drops only
-    // NEW: Drop title and description
-    concept: {
+    title: {
       type: String,
       required: function () {
         return this.status !== "draft";
@@ -16,7 +15,7 @@ const dropSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
-    detail: { type: String, default: "", trim: true },
+    idea: { type: String, default: "", trim: true },
     targetUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     needText: {
       type: String,
@@ -63,7 +62,6 @@ const dropSchema = new mongoose.Schema(
       default: "neighborhood",
     },
     type: { type: String, enum: ["in_person", "remote"], default: "in_person" },
-    circleId: { type: mongoose.Schema.Types.ObjectId, ref: "Circle", default: null, index: true },
     areaLabel: {
       type: String,
       required: function () {
@@ -88,7 +86,6 @@ const dropSchema = new mongoose.Schema(
 
 dropSchema.index({ visibility: 1, status: 1, deletedAt: 1, createdAt: -1 });
 dropSchema.index({ ownerId: 1, status: 1 });
-dropSchema.index({ circleId: 1, status: 1, createdAt: -1 });
 dropSchema.index({ targetUserId: 1 }, { sparse: true });
 dropSchema.index({ areaLabel: 1 });
 dropSchema.index({ location: "2dsphere" });
