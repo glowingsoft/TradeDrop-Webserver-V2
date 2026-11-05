@@ -1,23 +1,23 @@
 const mongoose = require("mongoose");
 const Circle = require("@models/Circle");
 const Event = require("@models/Event");
+const UserReport = require("@models/UserReport");
 const { Drop } = require("@models/Drop");
 const { User } = require("@UsersModel");
 const { getFullImageUrl } = require("@helperUtils/imageHelper");
 const { sendUserNotifications } = require("@backend/controllers/communicationController");
 const { parsePaginationParams, generateMeta } = require("@helperUtils/responseUtil");
-const { httpError, idStr } = require("../_shared/serialize");
+const { httpError, idStr, isAdminUser } = require("../_shared/serialize");
 const { withTransaction } = require("../_shared/tradeShared");
+const { getMember, organizerIds, activeMemberIds, circleIdsFor } = require("../circles/membership");
 
 function objectId(id, key = "event_not_found") {
   if (!mongoose.isValidObjectId(id)) throw httpError(404, key);
   return new mongoose.Types.ObjectId(id);
 }
 
-function activeMember(circle, userId) {
-  return (circle.members || []).find(
-    (member) => String(member.userId) === String(userId) && member.status === "active",
-  );
+async function activeMember(circle, userId, session = null) {
+  return getMember(circle._id, userId, { session });
 }
 
 async function loadCircle(circleId, session = null) {
@@ -28,13 +28,14 @@ async function loadCircle(circleId, session = null) {
   return circle;
 }
 
-function requireOrganizer(circle, userId) {
-  const member = activeMember(circle, userId);
+async function requireOrganizer(circle, userId, session = null) {
+  const member = await activeMember(circle, userId, session);
   if (!member || member.role !== "organizer") throw httpError(403, "circle_organizer_required");
 }
 
-function requireEventAccess(event, circle, userId) {
-  if (event.audience === "member_only" && !activeMember(circle, userId)) {
+async function requireEventAccess(event, circle, userId, session = null, isAdmin = false) {
+  if (isAdmin) return;
+  if (event.audience === "member_only" && !(await activeMember(circle, userId, session))) {
     throw httpError(404, "event_not_found");
   }
 }
@@ -93,19 +94,66 @@ function validateEventData(body, { publishing = false } = {}) {
   return result;
 }
 
+const OPEN_EVENT_LIMIT = 2;
+
+function activeEventFilter(userId) {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  return {
+    creatorId: userId,
+    status: "published",
+    $or: [{ date: null }, { date: { $gte: startOfToday } }],
+  };
+}
+
+async function assertEventCapacity(userId, excludeId = null) {
+  const filter = activeEventFilter(userId);
+  if (excludeId) filter._id = { $ne: excludeId };
+  if ((await Event.countDocuments(filter)) >= OPEN_EVENT_LIMIT) throw httpError(409, "open_event_limit");
+}
+
+async function listMyActiveEvents(userId) {
+  const events = await Event.find(activeEventFilter(userId)).sort({ date: 1, _id: -1 }).lean();
+  return events.map((e) => eventView(e, { viewerId: userId }));
+}
+
+async function deleteEvent(userId, eventId, isAdmin = false) {
+  const event = await Event.findById(objectId(eventId));
+  if (!event) throw httpError(404, "event_not_found");
+  const circle = await loadCircle(event.circleId);
+  if (!isAdmin) await requireOrganizer(circle, userId);
+  if (event.status === "published") throw httpError(409, "event_close_before_delete");
+  await Event.deleteOne({ _id: event._id });
+  return { deleted: true };
+}
+
 async function createEvent(userId, body = {}) {
   const circle = await loadCircle(body.circleId);
-  requireOrganizer(circle, userId);
-  const fields = validateEventData(body);
+  await requireOrganizer(circle, userId);
+  const requestedStatus = body.status === undefined ? "draft" : body.status;
+  if (!["draft", "publish", "published"].includes(requestedStatus)) {
+    throw httpError(400, "event_status_invalid");
+  }
+  const shouldPublish = requestedStatus !== "draft";
+  const fields = validateEventData(body, { publishing: shouldPublish });
+  if (shouldPublish) await assertEventCapacity(userId);
   const [event] = await Event.create([
-    { ...fields, circleId: circle._id, creatorId: userId, status: "draft" },
+    {
+      ...fields,
+      circleId: circle._id,
+      creatorId: userId,
+      rsvps: [{ userId, status: "going", respondedAt: new Date() }],
+      status: shouldPublish ? "published" : "draft",
+      ...(shouldPublish ? { publishedAt: new Date() } : {}),
+    },
   ]);
-  return eventView(event);
+  if (shouldPublish) await notifyPublishedEvent(event, circle._id, userId);
+  return eventView(event, { viewerId: userId });
 }
 
 async function suggestEvent(userId, circleId, body = {}) {
   const circle = await loadCircle(circleId);
-  if (!activeMember(circle, userId)) throw httpError(403, "circle_membership_required");
+  if (!(await activeMember(circle, userId))) throw httpError(403, "circle_membership_required");
   const fields = validateEventData(body);
   if (!fields.name) throw httpError(400, "event_name_required");
   const [event] = await Event.create([
@@ -118,10 +166,7 @@ async function suggestEvent(userId, circleId, body = {}) {
       status: "draft",
     },
   ]);
-  const organizers = circle.members
-    .filter((member) => member.status === "active" && member.role === "organizer")
-    .map((member) => String(member.userId))
-    .filter((id) => id !== String(userId));
+  const organizers = (await organizerIds(circle._id)).filter((id) => id !== String(userId));
   if (organizers.length) {
     sendUserNotifications({
       recipientIds: organizers,
@@ -135,7 +180,7 @@ async function suggestEvent(userId, circleId, body = {}) {
   return eventView(event);
 }
 
-function eventView(event, { viewerId = null, attendeeDetails = false } = {}) {
+function eventView(event, { viewerId = null, attendeeDetails = false, allAttendees = false } = {}) {
   const data = {
     _id: idStr(event._id),
     circleId: idStr(event.circleId),
@@ -164,8 +209,8 @@ function eventView(event, { viewerId = null, attendeeDetails = false } = {}) {
   data.myRsvp = ownRsvp ? { status: ownRsvp.status, showToParticipants: ownRsvp.showToParticipants } : null;
   if (attendeeDetails) {
     data.attendees = (event.rsvps || [])
-      .filter((rsvp) => rsvp.status === "going" && rsvp.showToParticipants)
-      .map((rsvp) => ({ userId: idStr(rsvp.userId), showToParticipants: true }));
+      .filter((rsvp) => rsvp.status === "going" && (allAttendees || rsvp.showToParticipants))
+      .map((rsvp) => ({ userId: idStr(rsvp.userId), showToParticipants: rsvp.showToParticipants === true }));
   }
   return data;
 }
@@ -174,13 +219,11 @@ async function updateEvent(userId, eventId, body = {}) {
   const event = await Event.findById(objectId(eventId));
   if (!event) throw httpError(404, "event_not_found");
   const circle = await loadCircle(event.circleId);
-  requireOrganizer(circle, userId);
+  const user = await User.findById(userId).lean();
+  if (!isAdminUser(user)) await requireOrganizer(circle, userId);
   if (event.status === "cancelled") throw httpError(409, "invalid_status_transition");
   const fields = validateEventData(body);
-  if (
-    fields.capacity != null &&
-    event.rsvps.filter((rsvp) => rsvp.status === "going").length > fields.capacity
-  ) {
+  if (fields.capacity != null && event.rsvps.filter((rsvp) => rsvp.status === "going").length > fields.capacity) {
     throw httpError(409, "event_capacity_below_rsvp_count");
   }
   Object.assign(event, fields);
@@ -188,21 +231,26 @@ async function updateEvent(userId, eventId, body = {}) {
   return eventView(event);
 }
 
-async function publishEvent(userId, eventId) {
+async function publishEvent(userId, eventId, isAdmin = false) {
   const event = await Event.findById(objectId(eventId));
   if (!event) throw httpError(404, "event_not_found");
   const circle = await loadCircle(event.circleId);
-  requireOrganizer(circle, userId);
+  if (!isAdmin) await requireOrganizer(circle, userId);
   if (event.suggestionStatus === "pending") throw httpError(409, "event_suggestion_requires_approval");
-  if (event.status === "cancelled") throw httpError(409, "invalid_status_transition");
+  if (event.suggestionStatus === "declined") throw httpError(409, "invalid_status_transition");
+  if (event.status === "published") return eventView(event);
   validateEventData(event.toObject(), { publishing: true });
+  await assertEventCapacity(event.creatorId, event._id);
   event.status = "published";
+  event.cancelledAt = null;
   event.publishedAt = new Date();
   await event.save();
-  const memberIds = circle.members
-    .filter((member) => member.status === "active")
-    .map((member) => String(member.userId))
-    .filter((id) => id !== String(userId));
+  await notifyPublishedEvent(event, circle._id, userId);
+  return eventView(event);
+}
+
+async function notifyPublishedEvent(event, circleId, userId) {
+  const memberIds = (await activeMemberIds(circleId)).map((id) => String(id)).filter((id) => id !== String(userId));
   if (memberIds.length) {
     sendUserNotifications({
       recipientIds: memberIds,
@@ -213,14 +261,13 @@ async function publishEvent(userId, eventId) {
       objectId: event._id,
     });
   }
-  return eventView(event);
 }
 
-async function cancelEvent(userId, eventId) {
+async function cancelEvent(userId, eventId, isAdmin = false) {
   const event = await Event.findById(objectId(eventId));
   if (!event) throw httpError(404, "event_not_found");
   const circle = await loadCircle(event.circleId);
-  requireOrganizer(circle, userId);
+  if (!isAdmin) await requireOrganizer(circle, userId);
   if (event.status === "cancelled") return eventView(event);
   event.status = "cancelled";
   event.cancelledAt = new Date();
@@ -242,11 +289,11 @@ async function cancelEvent(userId, eventId) {
   return eventView(event);
 }
 
-async function reviewSuggestion(userId, eventId, approve) {
+async function reviewSuggestion(userId, eventId, approve, isAdmin = false) {
   const event = await Event.findById(objectId(eventId));
   if (!event) throw httpError(404, "event_not_found");
   const circle = await loadCircle(event.circleId);
-  requireOrganizer(circle, userId);
+  if (!isAdmin) await requireOrganizer(circle, userId);
   if (event.suggestionStatus !== "pending") throw httpError(409, "invalid_status_transition");
   event.suggestionStatus = approve ? "approved" : "declined";
   event.approvedBy = userId;
@@ -268,20 +315,24 @@ async function reviewSuggestion(userId, eventId, approve) {
 async function listSuggestions(userId, circleId, req) {
   const { page, limit } = parsePaginationParams(req);
   const circle = await loadCircle(circleId);
-  requireOrganizer(circle, userId);
+  if (!isAdminUser(req.user)) await requireOrganizer(circle, userId);
   const query = { circleId: circle._id, suggestionStatus: "pending" };
   const [items, total] = await Promise.all([
-    Event.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    Event.find(query)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
     Event.countDocuments(query),
   ]);
   return { data: items.map((item) => eventView(item)), meta: generateMeta(page, limit, total) };
 }
 
-async function removeSuggestion(userId, eventId) {
+async function removeSuggestion(userId, eventId, isAdmin = false) {
   const event = await Event.findById(objectId(eventId));
   if (!event) throw httpError(404, "event_not_found");
   const circle = await loadCircle(event.circleId);
-  requireOrganizer(circle, userId);
+  if (!isAdmin) await requireOrganizer(circle, userId);
   if (event.suggestionStatus !== "pending") throw httpError(409, "invalid_status_transition");
   event.suggestionStatus = "declined";
   event.status = "cancelled";
@@ -296,7 +347,7 @@ async function rsvp(userId, eventId, showToParticipants = false) {
     const event = await Event.findById(eventObjectId).session(session);
     if (!event || event.status !== "published") throw httpError(404, "event_not_found");
     const circle = await loadCircle(event.circleId, session);
-    requireEventAccess(event, circle, userId);
+    await requireEventAccess(event, circle, userId, session);
     const existingIndex = event.rsvps.findIndex((entry) => String(entry.userId) === String(userId));
     if (existingIndex >= 0 && event.rsvps[existingIndex].status !== "cancelled") {
       throw httpError(409, "event_rsvp_exists");
@@ -319,10 +370,7 @@ async function rsvp(userId, eventId, showToParticipants = false) {
     return {
       status,
       event: eventView(event, { viewerId: userId }),
-      organizerIds: circle.members
-        .filter((member) => member.status === "active" && member.role === "organizer")
-        .map((member) => String(member.userId))
-        .filter((id) => id !== String(userId)),
+      organizerIds: (await organizerIds(circle._id, session)).filter((id) => id !== String(userId)),
     };
   });
   if (result.status === "pending" && result.organizerIds.length) {
@@ -344,7 +392,7 @@ async function decideRsvp(userId, eventId, targetUserId, approve) {
     const event = await Event.findById(objectId(eventId)).session(session);
     if (!event || event.status !== "published") throw httpError(404, "event_not_found");
     const circle = await loadCircle(event.circleId, session);
-    requireOrganizer(circle, userId);
+    await requireOrganizer(circle, userId, session);
     const target = event.rsvps.find((entry) => String(entry.userId) === String(targetUserId));
     if (!target || target.status !== "pending") throw httpError(404, "event_rsvp_not_found");
     const going = event.rsvps.filter((entry) => entry.status === "going").length;
@@ -374,15 +422,13 @@ async function cancelRsvp(userId, eventId) {
     const event = await Event.findById(objectId(eventId)).session(session);
     if (!event || event.status !== "published") throw httpError(404, "event_not_found");
     const circle = await loadCircle(event.circleId, session);
-    requireEventAccess(event, circle, userId);
+    await requireEventAccess(event, circle, userId, session);
     const rsvp = event.rsvps.find((entry) => String(entry.userId) === String(userId));
     if (!rsvp || rsvp.status === "cancelled") throw httpError(404, "event_rsvp_not_found");
     rsvp.status = "cancelled";
     rsvp.respondedAt = new Date();
     await event.save({ session });
-    return { event, organizerIds: circle.members
-      .filter((member) => member.role === "organizer" && member.status === "active")
-      .map((member) => String(member.userId)) };
+    return { event, organizerIds: await organizerIds(circle._id, session) };
   });
   sendUserNotifications({
     recipientIds: result.organizerIds.filter((id) => id !== String(userId)),
@@ -395,12 +441,12 @@ async function cancelRsvp(userId, eventId) {
   return eventView(result.event, { viewerId: userId });
 }
 
-async function getEvent(eventId, userId = null) {
+async function getEvent(eventId, userId = null, isAdmin = false) {
   const event = await Event.findById(objectId(eventId)).lean();
   if (!event || event.status !== "published") throw httpError(404, "event_not_found");
   const circle = await loadCircle(event.circleId);
-  requireEventAccess(event, circle, userId);
-  const memberIds = circle.members.filter((member) => member.status === "active").map((member) => member.userId);
+  await requireEventAccess(event, circle, userId, null, isAdmin);
+  const memberIds = await activeMemberIds(circle._id);
   const drops = await Drop.find({
     ownerId: { $in: memberIds },
     status: "open",
@@ -410,17 +456,23 @@ async function getEvent(eventId, userId = null) {
     .select("_id ownerId title date")
     .sort({ createdAt: -1 })
     .lean();
+  const isActiveMember = Boolean(userId && (await activeMember(circle, userId)));
   const view = eventView(event, {
     viewerId: userId,
-    attendeeDetails: Boolean(
-      userId &&
-        (activeMember(circle, userId) ||
+    attendeeDetails:
+      isAdmin ||
+      Boolean(
+        userId &&
+        (isActiveMember ||
           event.rsvps.some((rsvp) => String(rsvp.userId) === String(userId) && rsvp.status === "going")),
-    ),
+      ),
+    allAttendees: isAdmin,
   });
   if (view.attendees) {
     const attendeeIds = view.attendees.map((attendee) => attendee.userId);
-    const attendees = await User.find({ _id: { $in: attendeeIds } }).select("name handle profileIcon").lean();
+    const attendees = await User.find({ _id: { $in: attendeeIds } })
+      .select("name handle profileIcon")
+      .lean();
     const byId = new Map(attendees.map((attendee) => [String(attendee._id), attendee]));
     view.attendees = view.attendees.map((attendee) => {
       const profile = byId.get(attendee.userId);
@@ -448,8 +500,8 @@ async function getEvent(eventId, userId = null) {
 
 async function listEvents(req, { excludeUserIds = [] } = {}) {
   const { page, limit } = parsePaginationParams(req);
-  const { lat, lng, radius, anywhere, keyword } = req.query;
-  const match = { status: "published", date: { $gte: new Date() } };
+  const { lat, lng, radius, anywhere, keyword, status } = req.query;
+  const match = { status: status || "published", date: { $gte: new Date() } };
   if (keyword?.trim()) match.name = { $regex: escapeRegex(keyword.trim()), $options: "i" };
   if (
     anywhere !== "true" &&
@@ -468,7 +520,10 @@ async function listEvents(req, { excludeUserIds = [] } = {}) {
       String(lng).trim() === "" ||
       !Number.isFinite(Number(lat)) ||
       !Number.isFinite(Number(lng)) ||
-      Number(lat) < -90 || Number(lat) > 90 || Number(lng) < -180 || Number(lng) > 180)
+      Number(lat) < -90 ||
+      Number(lat) > 90 ||
+      Number(lng) < -180 ||
+      Number(lng) > 180)
   ) {
     throw httpError(400, "event_location_invalid");
   }
@@ -486,6 +541,7 @@ async function listEvents(req, { excludeUserIds = [] } = {}) {
         },
       ]
     : [{ $match: match }];
+  const memberCircleIds = req.user?._id ? await circleIdsFor(req.user._id) : [];
   const [result] = await Event.aggregate([
     ...pipeline,
     {
@@ -501,30 +557,173 @@ async function listEvents(req, { excludeUserIds = [] } = {}) {
     {
       $match: {
         "circle.deletedAt": null,
-        ...(req.user?._id
-          ? {
-              $or: [
-                { audience: "public", "circle.privacy": { $in: ["open", "approval"] } },
-                {
-                  "circle.members": {
-                    $elemMatch: {
-                      userId: new mongoose.Types.ObjectId(String(req.user._id)),
-                      status: "active",
-                    },
-                  },
-                },
-              ],
-            }
-          : { audience: "public", "circle.privacy": { $in: ["open", "approval"] } }),
+        ...(isAdminUser(req.user)
+          ? {}
+          : memberCircleIds.length
+            ? {
+                $or: [
+                  { audience: "public", "circle.privacy": { $in: ["open", "approval"] } },
+                  { circleId: { $in: memberCircleIds } },
+                ],
+              }
+            : { audience: "public", "circle.privacy": { $in: ["open", "approval"] } }),
       },
     },
-    { $facet: { items: [{ $sort: { date: 1 } }, { $skip: (page - 1) * limit }, { $limit: limit }], total: [{ $count: "count" }] } },
+    {
+      $facet: {
+        items: [{ $sort: { date: 1 } }, { $skip: (page - 1) * limit }, { $limit: limit }],
+        total: [{ $count: "count" }],
+      },
+    },
   ]);
   const data = (result?.items || []).map((item) => ({
     ...eventView(item, { viewerId: req.user?._id }),
     distanceMeters: item.distanceMeters ?? null,
   }));
   return { data, meta: generateMeta(page, limit, result?.total?.[0]?.count || 0) };
+}
+
+const EVENT_LIST_STATUSES = ["upcoming", "cancelled"];
+
+async function listAllEvents(req) {
+  const { page, limit } = parsePaginationParams(req);
+  const { keyword, circleId, audience, status } = req.query;
+  if (status !== undefined && !EVENT_LIST_STATUSES.includes(status)) throw httpError(400, "event_status_invalid");
+  if (audience !== undefined && !["public", "member_only"].includes(audience)) {
+    throw httpError(400, "event_audience_invalid");
+  }
+  if (circleId !== undefined && !mongoose.isValidObjectId(circleId)) throw httpError(400, "circle_id_invalid");
+
+  const statusMatches = {
+    upcoming: { status: "published", date: { $gte: new Date() } },
+    cancelled: { status: "cancelled" },
+  };
+
+  const match = { status: { $in: ["published", "cancelled"] } };
+  if (audience) match.audience = audience;
+  if (circleId) match.circleId = new mongoose.Types.ObjectId(circleId);
+  if (keyword !== undefined && String(keyword).trim()) {
+    const expression = { $regex: escapeRegex(String(keyword).trim()), $options: "i" };
+    const organizers = await User.find({ name: expression }).select("_id").limit(1000).lean();
+    match.$or = [{ name: expression }, { creatorId: { $in: organizers.map((user) => user._id) } }];
+  }
+
+  const memberCircleIds = req.user?._id ? await circleIdsFor(req.user._id) : [];
+  const visibility = isAdminUser(req.user)
+    ? { "circle.deletedAt": null }
+    : {
+        "circle.deletedAt": null,
+        $or: [
+          { audience: "public", "circle.privacy": { $in: ["open", "approval"] } },
+          ...(memberCircleIds.length ? [{ circleId: { $in: memberCircleIds } }] : []),
+        ],
+      };
+  const countStatus = (name) => [{ $match: statusMatches[name] }, { $count: "count" }];
+
+  const [result] = await Event.aggregate([
+    { $match: match },
+    {
+      $lookup: {
+        from: Circle.collection.name,
+        let: { circleId: "$circleId" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$_id", "$$circleId"] } } },
+          { $project: { name: 1, privacy: 1, deletedAt: 1 } },
+        ],
+        as: "circle",
+      },
+    },
+    { $set: { circle: { $first: "$circle" } } },
+    { $match: visibility },
+    {
+      $facet: {
+        items: [
+          ...(status ? [{ $match: statusMatches[status] }] : []),
+          { $sort: { date: -1, _id: -1 } },
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+        ],
+        totalRecords: [...(status ? [{ $match: statusMatches[status] }] : []), { $count: "count" }],
+        total: [{ $count: "count" }],
+        upcoming: countStatus("upcoming"),
+        ongoing: [
+          {
+            $group: {
+              _id: null,
+              count: {
+                $sum: {
+                  $size: {
+                    $filter: {
+                      input: { $ifNull: ["$rsvps", []] },
+                      as: "rsvp",
+                      cond: { $eq: ["$$rsvp.status", "going"] },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        ],
+        cancelled: countStatus("cancelled"),
+        reports: [
+          {
+            $lookup: {
+              from: UserReport.collection.name,
+              let: { eventId: "$_id" },
+              pipeline: [
+                { $match: { resourceType: "event", $expr: { $eq: ["$resourceId", "$$eventId"] } } },
+                { $count: "count" },
+              ],
+              as: "_reports",
+            },
+          },
+          { $group: { _id: null, count: { $sum: { $ifNull: [{ $first: "$_reports.count" }, 0] } } } },
+        ],
+      },
+    },
+  ]);
+
+  const items = result?.items || [];
+  const organizerIdsOnPage = [...new Set(items.map((item) => String(item.creatorId)))];
+  const organizers = organizerIdsOnPage.length
+    ? await User.find({ _id: { $in: organizerIdsOnPage } })
+        .select("name handle profileIcon")
+        .lean()
+    : [];
+  const organizerById = new Map(organizers.map((user) => [String(user._id), user]));
+  const data = items.map((item) => {
+    const organizer = organizerById.get(String(item.creatorId));
+    return {
+      ...eventView(item, { viewerId: req.user?._id }),
+      circleName: item.circle?.name || "",
+      organizer: organizer
+        ? {
+            _id: idStr(organizer._id),
+            name: organizer.name || "",
+            handle: organizer.handle || "",
+            profileIcon: organizer.profileIcon ? getFullImageUrl(organizer.profileIcon) : "",
+          }
+        : null,
+    };
+  });
+  const countOf = (key) => result?.[key]?.[0]?.count || 0;
+  const meta = generateMeta(page, limit, countOf("totalRecords"));
+  meta.count = {
+    total: countOf("total"),
+    upcoming: countOf("upcoming"),
+    ongoing: countOf("ongoing"),
+    cancelled: countOf("cancelled"),
+    reports: countOf("reports"),
+  };
+  return { data, meta };
+}
+
+async function listMyDraftEvents(userId) {
+  const events = await Event.find({ creatorId: userId, status: "draft", suggestedBy: null })
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(2)
+    .lean();
+  return events.map((e) => eventView(e, { viewerId: userId }));
 }
 
 function escapeRegex(value) {
@@ -545,4 +744,8 @@ module.exports = {
   cancelRsvp,
   getEvent,
   listEvents,
+  listAllEvents,
+  listMyDraftEvents,
+  listMyActiveEvents,
+  deleteEvent,
 };

@@ -18,10 +18,9 @@ const {
   publicDropFilter,
   toDropView,
   parseDropContent,
-  parseExpiration,
-  parseOptionalDate,
+  parseDropTiming,
   parseLocationType,
-  assertTimeRange,
+  assertTimingComplete,
   assertTradeCapacity,
   stringArray,
   loadOwner,
@@ -71,16 +70,7 @@ async function parseDraftContent(body = {}, owner) {
   if (body.referenceImages !== undefined)
     content.referenceImages = stringArray(body.referenceImages, 10, "reference_images_invalid");
   if (body.locationType !== undefined) content.locationType = parseLocationType(body.locationType);
-  if (body.expiresIn !== undefined || body.expiration !== undefined) {
-    content.expiresAt = parseExpiration(body.expiresIn ?? body.expiration);
-  }
-  if (body.date !== undefined) {
-    if (body.date && Number.isNaN(new Date(body.date).getTime())) throw httpError(400, "date_invalid");
-    content.date = body.date ? new Date(body.date) : null;
-  }
-  if (body.startTime !== undefined) content.startTime = parseOptionalDate(body.startTime, "start_time_invalid");
-  if (body.endTime !== undefined) content.endTime = parseOptionalDate(body.endTime, "end_time_invalid");
-  if (content.startTime || content.endTime) assertTimeRange(content.startTime, content.endTime);
+  Object.assign(content, parseDropTiming(body));
 
   if (body.type === "remote") {
     content.areaLabel = content.areaLabel || owner.areaLabel || "";
@@ -175,6 +165,10 @@ function validateForPublishing(drop, owner, { allowExpired = false } = {}) {
     throw httpError(400, "drop_type_invalid");
   }
   if (!allowExpired && drop.expiresAt && drop.expiresAt <= new Date()) throw httpError(400, "expiration_invalid");
+  assertTimingComplete(drop);
+  if (!allowExpired && drop.tapInDeadline && drop.tapInDeadline <= new Date()) {
+    throw httpError(400, "tap_in_deadline_invalid");
+  }
 }
 
 async function publishDrop(userId, dropId) {
@@ -329,6 +323,7 @@ async function reopenDrop(userId, dropId) {
     drop.publishedAt = new Date();
     drop.closedAt = null;
     drop.expiresAt = new Date(Date.now() + 7 * 86400000);
+    if (drop.tapInDeadline) drop.tapInDeadline = drop.expiresAt;
     await drop.save({ session });
     return { reopened: true, openDropIds: [...existing, idStr(drop._id)], drop: toDropView(drop.toObject(), userId) };
   });
@@ -348,6 +343,7 @@ async function extendDrop(userId, dropId) {
   }
   if (drop.status !== "open") throw httpError(409, "invalid_status_transition");
   drop.expiresAt = new Date(now.getTime() + 7 * 86400000);
+  if (drop.tapInDeadline) drop.tapInDeadline = drop.expiresAt;
   await drop.save();
   return { extended: true, drop: toDropView(drop.toObject(), userId) };
 }
@@ -389,17 +385,10 @@ async function patchDrop(userId, dropId, body = {}) {
   if (body.referenceImages !== undefined) {
     set.referenceImages = stringArray(body.referenceImages, 10, "reference_images_invalid");
   }
-  if (body.expiresIn !== undefined || body.expiration !== undefined) {
-    set.expiresAt = parseExpiration(body.expiresIn ?? body.expiration);
-  }
-  if (body.startTime !== undefined || body.endTime !== undefined) {
-    const current = await Drop.findById(id).select("startTime endTime").lean();
-    const startTime =
-      body.startTime !== undefined ? parseOptionalDate(body.startTime, "start_time_invalid") : current?.startTime;
-    const endTime = body.endTime !== undefined ? parseOptionalDate(body.endTime, "end_time_invalid") : current?.endTime;
-    assertTimeRange(startTime, endTime);
-    if (body.startTime !== undefined) set.startTime = startTime;
-    if (body.endTime !== undefined) set.endTime = endTime;
+  const timingKeys = ["timingType", "date", "startTime", "endTime", "dateFrom", "dateTo", "tapInDeadline"];
+  if (timingKeys.some((k) => body[k] !== undefined)) {
+    const current = await Drop.findById(id).select(timingKeys.join(" ")).lean();
+    Object.assign(set, parseDropTiming(body, current || {}));
   }
   if (body.idea !== undefined) {
     if (String(body.idea).length > 500) throw httpError(400, "idea_too_long");
@@ -414,10 +403,6 @@ async function patchDrop(userId, dropId, body = {}) {
     const chip = await TimingChip.findOne({ value: String(body.timingChip).toLowerCase(), status: "active" }).lean();
     if (!chip) throw httpError(400, "timing_chip_invalid");
     set.timingChip = chip._id;
-  }
-  if (body.date !== undefined) {
-    if (body.date && Number.isNaN(new Date(body.date).getTime())) throw httpError(400, "date_invalid");
-    set.date = body.date ? new Date(body.date) : null;
   }
   if (body.lat !== undefined || body.lng !== undefined) {
     if (body.lat == null || body.lng == null || Number.isNaN(Number(body.lat)) || Number.isNaN(Number(body.lng))) {
@@ -589,6 +574,18 @@ async function listMyDrops(userId, req) {
   };
 }
 
+async function listMyDrafts(userId) {
+  const [drops, events] = await Promise.all([
+    Drop.find({ ownerId: userId, status: "draft", deletedAt: null })
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(2)
+      .populate("timingChip", "value label")
+      .lean(),
+    require("../events/service").listMyDraftEvents(userId),
+  ]);
+  return { drops: drops.map((d) => toDropView(d, userId)), events };
+}
+
 async function getAllDrops(req, { extraConditions = [] } = {}) {
   const { page, limit } = parsePaginationParams(req);
   const {
@@ -607,6 +604,7 @@ async function getAllDrops(req, { extraConditions = [] } = {}) {
     kind,
     type,
     date,
+    status,
   } = req.query;
 
   const match = publicDropFilter();
@@ -626,6 +624,7 @@ async function getAllDrops(req, { extraConditions = [] } = {}) {
     if (!["in_person", "remote"].includes(String(type))) throw httpError(400, "drop_type_invalid");
     match.type = String(type);
   }
+  if (status) match.status = String(status);
   if (tag === "isNew") {
     match.status = "open";
     Object.assign(match, dropExpiredFilter());
@@ -808,5 +807,6 @@ module.exports = {
   getDrop,
   listPublic,
   listMyDrops,
+  listMyDrafts,
   getAllDrops,
 };

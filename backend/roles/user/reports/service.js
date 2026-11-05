@@ -75,7 +75,15 @@ async function createReport(reporterId, body = {}) {
     }[resourceType];
     const resource = await resourceModel
       .findById(resourceId)
-      .select(resourceType === "message" ? "senderId" : resourceType === "drop" ? "ownerId" : resourceType === "circle" ? "creatorId" : "creatorId suggestedBy")
+      .select(
+        resourceType === "message"
+          ? "senderId"
+          : resourceType === "drop"
+            ? "ownerId"
+            : resourceType === "circle"
+              ? "creatorId"
+              : "creatorId suggestedBy",
+      )
       .lean();
     if (!resource) throw httpError(404, "report_resource_not_found");
     const ownerId =
@@ -129,6 +137,7 @@ async function listMyReports(userId, req) {
 async function listReports(req, actor) {
   if (!actor.isAdmin) throw httpError(403, "access_denied");
   const { page, limit } = parsePaginationParams(req);
+  const { resourceType, resourceId, status } = req.query;
   const filter = {};
   if (req.query.status !== undefined) {
     if (!STATUSES.includes(req.query.status)) throw httpError(400, "report_status_invalid");
@@ -137,6 +146,14 @@ async function listReports(req, actor) {
   if (req.query.reason !== undefined) {
     if (!REASONS.includes(req.query.reason)) throw httpError(400, "report_reason_invalid");
     filter.reason = req.query.reason;
+  }
+  if (resourceType !== undefined) {
+    if (!["drop", "message", "circle", "event", "suggestion"].includes(resourceType))
+      throw httpError(400, "report_resource_type_invalid");
+    filter.resourceType = resourceType;
+  }
+  if (resourceId !== undefined) {
+    filter.resourceId = resourceId;
   }
   const [data, total] = await Promise.all([
     UserReport.find(filter)
@@ -162,7 +179,7 @@ async function moderateReport(reportId, actor, body = {}) {
         status: body.status,
         assignedTo: actor._id,
         resolutionNote: ["action_taken", "dismissed", "resolved"].includes(body.status) ? note : "",
-        ...( ["action_taken", "dismissed", "resolved"].includes(body.status) ? { outcomeNotifiedAt: new Date() } : {}),
+        ...(["action_taken", "dismissed", "resolved"].includes(body.status) ? { outcomeNotifiedAt: new Date() } : {}),
       },
       $push: { history: { status: body.status, changedBy: actor._id, note } },
     },

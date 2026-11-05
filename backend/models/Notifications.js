@@ -2,15 +2,6 @@ const mongoose = require("mongoose");
 
 // Define the NotificationTypes enum
 const NotificationTypes = {
-  BOOKING_REQUEST: "booking_request",
-  NEW_BOOKING: "new_booking",
-  BOOKING_CONFIRMATION: "booking_confirmation",
-  BOOKING_REJECTION: "booking_rejection",
-  BOOKING_CANCELLATION: "booking_cancellation",
-  PAYMENT_COMPLETED: "payment_completed",
-  BOOKING_REMINDER: "booking_reminder",
-  PAYMENT_REMINDER: "payment_reminder",
-  SESSION_REMINDER: "session_reminder",
   REVIEW_REMINDER: "review_reminder",
   GENERAL: "general",
   NEW_MESSAGE: "new_message",
@@ -31,7 +22,7 @@ const NotificationTypes = {
 const NotificationSchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: Object.values(NotificationTypes), // Reference the notification types enum
+    // enum: Object.values(NotificationTypes), // Reference the notification types enum
     required: true,
   },
   subjectId: {

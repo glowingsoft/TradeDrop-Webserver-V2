@@ -51,8 +51,14 @@ const dropSchema = new mongoose.Schema(
       default: null,
     },
     date: { type: Date, default: null },
-    startTime: { type: Date, default: null },
-    endTime: { type: Date, default: null },
+    // specific: date + startTime/endTime; range: dateFrom/dateTo; flexible: no dates
+    timingType: { type: String, enum: ["specific", "range", "flexible"], default: null },
+    dateFrom: { type: Date, default: null },
+    dateTo: { type: Date, default: null },
+    // Optional, applies to every timingType
+    tapInDeadline: { type: Date, default: null },
+    startTime: { type: String, default: null }, // "HH:mm"
+    endTime: { type: String, default: null }, // "HH:mm"
     expiresAt: { type: Date, default: null },
 
     // Location

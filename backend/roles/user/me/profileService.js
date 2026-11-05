@@ -190,15 +190,15 @@ async function patchMe(userId, body = {}) {
   }
   const profileIcon = body.profileIcon !== undefined ? body.profileIcon : body.imageUrl;
   if (profileIcon !== undefined) {
-    if (!profileIcon || typeof profileIcon !== "string") {
-      throw AppError("profile_icon_required", 400);
-    }
+    // if (!profileIcon || typeof profileIcon !== "string") {
+    //   throw AppError("profile_icon_required", 400);
+    // }
     patch.profileIcon = profileIcon.trim();
   }
   if (body.coverImage !== undefined) {
-    if (!body.coverImage || typeof body.coverImage !== "string") {
-      throw AppError("cover_image_required", 400);
-    }
+    // if (!body.coverImage || typeof body.coverImage !== "string") {
+    //   throw AppError("cover_image_required", 400);
+    // }
     patch.coverImage = body.coverImage.trim();
   }
 
@@ -243,6 +243,8 @@ async function patchMe(userId, body = {}) {
     }
     patch.handle = handle;
   }
+
+  if (body.openToTrade !== undefined) patch.openToTrade = Boolean(body.openToTrade);
 
   let foundingMemberBadge = null;
   if (body.fromOnboarding === true) {

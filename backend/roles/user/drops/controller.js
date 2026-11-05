@@ -6,6 +6,7 @@ module.exports = {
   listDrops: list("drops_fetched", (req) => service.listPublic(req, req.user?._id)),
   listAllDrops: list("drops_fetched", (req) => service.getAllDrops(req)),
   listMyDrops: list("drops_fetched", (req) => service.listMyDrops(req.user._id, req)),
+  listMyDrafts: one(200, "drops_fetched", (req) => service.listMyDrafts(req.user._id)),
   getDrop: one(200, "drop_fetched", (req) => service.getDrop(req.params.id, req.user?._id)),
   createDrop: async (req, res) => {
     try {

@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const mongoose = require("mongoose");
 const { Drop } = require("../../backend/models/Drop");
 const Circle = require("../../backend/models/Circle");
+const CircleMember = require("../../backend/models/CircleMember");
 const Event = require("../../backend/models/Event");
 const { Dispute } = require("../../backend/models/Dispute");
 const UserReport = require("../../backend/models/UserReport");
@@ -44,13 +45,38 @@ describe("V2 model validation", () => {
   });
 
   it("validates Circle roles, RSVP states, and report status enums", async () => {
-    await new Circle({
+    const circle = new Circle({
       creatorId: objectId(),
       name: "Circle",
       purpose: "Shared creative work",
       category: objectId(),
-      members: [{ userId: objectId(), role: "organizer", status: "active" }],
+      polls: [
+        {
+          question: "First poll?",
+          options: ["Yes", "No"],
+          createdBy: objectId(),
+          closesAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+        },
+        {
+          question: "Second poll?",
+          options: ["Yes", "No"],
+          createdBy: objectId(),
+          closesAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+        },
+      ],
+    });
+    await circle.validate();
+    assert.equal(circle.polls.length, 2);
+    assert.ok(circle.polls.every((poll) => poll._id));
+    await new CircleMember({
+      circleId: objectId(),
+      userId: objectId(),
+      role: "organizer",
+      status: "active",
     }).validate();
+    await assert.rejects(
+      new CircleMember({ circleId: objectId(), userId: objectId(), status: "unknown" }).validate(),
+    );
     await new Event({
       circleId: objectId(),
       creatorId: objectId(),

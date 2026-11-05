@@ -100,6 +100,7 @@ async function tapIn(userId, dropId, body = {}) {
   const drop = await Drop.findOne({ _id: id, ...publicDropFilter() }).lean();
   if (!drop) throw httpError(404, "drop_not_found");
   if (drop.expiresAt && new Date(drop.expiresAt) <= new Date()) throw httpError(409, "drop_expired");
+  if (drop.tapInDeadline && new Date(drop.tapInDeadline) <= new Date()) throw httpError(409, "tap_in_deadline_passed");
   if (String(drop.ownerId) === String(userId)) throw httpError(403, "cannot_tap_own_drop");
   if (await isBlockedBetween(userId, drop.ownerId)) throw httpError(403, "user_blocked");
 

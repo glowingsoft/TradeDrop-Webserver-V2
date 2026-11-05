@@ -113,9 +113,13 @@ module.exports = {
           title: { type: "string", maxLength: 120 },
           locationType: { type: "string", enum: ["neighborhood", "specific", "remote"] },
           referenceImages: { type: "array", items: { type: "string" }, maxItems: 10 },
-          startTime: { type: "string", format: "date-time", nullable: true },
-          endTime: { type: "string", format: "date-time", nullable: true },
-          expiresIn: { type: "string", example: "24h", description: "24h, 3days, 1week (max 365 days)" },
+          startTime: { type: "string", example: "18:30", nullable: true, description: "HH:mm, with timingType=specific" },
+          endTime: { type: "string", example: "20:00", nullable: true, description: "HH:mm, with timingType=specific" },
+          timingType: { type: "string", enum: ["specific", "range", "flexible"] },
+          date: { type: "string", format: "date-time", nullable: true },
+          dateFrom: { type: "string", format: "date-time", nullable: true },
+          dateTo: { type: "string", format: "date-time", nullable: true },
+          tapInDeadline: { type: "string", format: "date-time", nullable: true, description: "Optional, all timing types" },
           needText: { type: "string" },
           offerText: { type: "string" },
           needCategoryId: { type: "string" },
@@ -816,7 +820,43 @@ module.exports = {
     "/circles": {
       get: {
         tags: ["Circles"],
-        responses: { 200: { description: "Public Open and Approval Circles; invite-only Circles are hidden" } },
+        summary: "Discover nearby Open and Approval Circles",
+        parameters: [
+          { in: "query", name: "page", schema: { type: "integer", minimum: 1 } },
+          { in: "query", name: "limit", schema: { type: "integer", minimum: 1, maximum: 100 } },
+          { in: "query", name: "category", schema: { type: "string" } },
+          { in: "query", name: "city", schema: { type: "string" } },
+          { in: "query", name: "keyword", schema: { type: "string" } },
+          { in: "query", name: "lat", schema: { type: "number" } },
+          { in: "query", name: "lng", schema: { type: "number" } },
+          { in: "query", name: "radius", schema: { type: "number", exclusiveMinimum: 0 } },
+        ],
+        responses: { 200: { description: "Paginated Circle discovery results with optional location filtering" } },
+      },
+    },
+    "/circles/all": {
+      get: {
+        tags: ["Circles"],
+        summary: "Get all Circles without location filtering",
+        parameters: [
+          { in: "query", name: "page", schema: { type: "integer", minimum: 1 } },
+          { in: "query", name: "limit", schema: { type: "integer", minimum: 1, maximum: 100 } },
+          { in: "query", name: "category", schema: { type: "string" } },
+          {
+            in: "query",
+            name: "privacy",
+            schema: { type: "string", enum: ["open", "invite-only", "approval-required"] },
+          },
+          { in: "query", name: "city", schema: { type: "string" } },
+          { in: "query", name: "status", schema: { type: "string", enum: ["active", "reported"] } },
+          { in: "query", name: "keyword", schema: { type: "string" } },
+        ],
+        responses: {
+          200: {
+            description:
+              "Filtered Circle results with aggregate circle, member, report, and active-pool counts in meta.count; invite-only Circles are visible only to their active members",
+          },
+        },
       },
       post: {
         tags: ["Circles"],
@@ -888,7 +928,7 @@ module.exports = {
         tags: ["Circles"],
         security: [{ bearerAuth: [] }],
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "Invite selected users to an invite-only Circle" } },
+        responses: { 200: { description: "Invite the organizer's active connections to a Circle of any privacy" } },
       },
     },
     "/circles/{id}/invitations/respond": {
@@ -907,18 +947,42 @@ module.exports = {
         responses: { 200: { description: "Transfer organizer responsibility to another active member" } },
       },
     },
+    "/circles/{id}/members": {
+      get: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["active", "pending", "invited"] } },
+          { name: "page", in: "query", schema: { type: "integer" } },
+          { name: "limit", in: "query", schema: { type: "integer" } },
+        ],
+        responses: { 200: { description: "Paginated Circle members; pending and invited lists are organizer-only" } },
+      },
+    },
     "/circles/{id}/polls": {
       post: {
         tags: ["Circles"],
         security: [{ bearerAuth: [] }],
-        responses: { 201: { description: "Create a poll (one active poll per Circle)" } },
+        responses: { 201: { description: "Create a Circle poll; up to three can be active, with a default two-day duration" } },
+      },
+    },
+    "/circles/{id}/polls/{pollId}/vote": {
+      post: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "pollId", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: { 200: { description: "Vote once in the specified active Circle poll" } },
       },
     },
     "/circles/{id}/polls/vote": {
       post: {
         tags: ["Circles"],
         security: [{ bearerAuth: [] }],
-        responses: { 200: { description: "Vote once in an active Circle poll" } },
+        responses: { 200: { description: "Legacy vote route; include pollId when multiple Circle polls are active" } },
       },
     },
     "/events": {
@@ -930,6 +994,26 @@ module.exports = {
         tags: ["Events"],
         security: [{ bearerAuth: [] }],
         responses: { 201: { description: "Create an Event draft in a Circle the caller organizes" } },
+      },
+    },
+    "/events/all": {
+      get: {
+        tags: ["Events"],
+        summary: "Get all Events without location filtering",
+        parameters: [
+          { in: "query", name: "page", schema: { type: "integer", minimum: 1 } },
+          { in: "query", name: "limit", schema: { type: "integer", minimum: 1, maximum: 100 } },
+          { in: "query", name: "keyword", description: "Matches Event name or organizer name", schema: { type: "string" } },
+          { in: "query", name: "circleId", schema: { type: "string" } },
+          { in: "query", name: "audience", schema: { type: "string", enum: ["public", "member_only"] } },
+          { in: "query", name: "status", schema: { type: "string", enum: ["upcoming", "cancelled"] } },
+        ],
+        responses: {
+          200: {
+            description:
+              "Paginated Events; meta.count holds total, upcoming, ongoing (total going RSVPs), cancelled, and reports across all matching Events ignoring the status filter",
+          },
+        },
       },
     },
     "/events/{id}": {

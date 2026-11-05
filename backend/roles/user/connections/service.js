@@ -158,6 +158,7 @@ async function getNetwork(userId, req) {
     String(connection.userA) === String(userId) ? connection.userB : connection.userA,
   );
   const UserCircle = require("@models/Circle");
+  const circleIds = await require("../circles/membership").circleIdsFor(userId);
   const Favorite = require("@backend/commonModules/favorites/Favorite").Favorites;
   const [users, circles, saved, openDrops] = await Promise.all([
     User.find({
@@ -166,7 +167,7 @@ async function getNetwork(userId, req) {
     })
       .select("name handle profileIcon")
       .lean(),
-    UserCircle.find({ members: { $elemMatch: { userId, status: "active" } }, deletedAt: null })
+    UserCircle.find({ _id: { $in: circleIds }, deletedAt: null })
       .select("name purpose privacy city")
       .lean(),
     Favorite.find({ user: userId })

@@ -25,6 +25,7 @@ const { logEngagementService } = require("../../appEngagement/engagementEventsSe
 const { User } = require("@UsersModel");
 const Trade = require("@models/Trade");
 const Circle = require("@models/Circle");
+const CircleMember = require("@models/CircleMember");
 const { isBlockedBetween, isActivelyConnected } = require("../../../helperUtils/connectionUtil");
 
 function activeConversationParticipant(conversation, userId) {
@@ -56,14 +57,11 @@ async function canAccessConversation(conversation, userId, { send = false } = {}
     return !send || !(await isBlockedBetween(userId, otherId));
   }
   if (conversation.circleId) {
-    const circle = await Circle.findOne({
-      _id: conversation.circleId,
-      deletedAt: null,
-      members: { $elemMatch: { userId, status: "active" } },
-    })
-      .select("_id")
-      .lean();
-    return Boolean(circle);
+    const [circle, member] = await Promise.all([
+      Circle.exists({ _id: conversation.circleId, deletedAt: null }),
+      CircleMember.exists({ circleId: conversation.circleId, userId, status: "active" }),
+    ]);
+    return Boolean(circle && member);
   }
   return true;
 }

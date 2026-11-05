@@ -1,10 +1,9 @@
-
-
 var SibApiV3Sdk = require("sib-api-v3-sdk");
 
-
 const sendEmailViaBrevo = async (emails, subject, body, config = {}) => {
-  console.debug("🚀 ~ sendEmailViaBrevo ~ emails:", emails)
+  return;
+
+  console.debug("🚀 ~ sendEmailViaBrevo ~ emails:", emails);
   var defaultClient = SibApiV3Sdk.ApiClient.instance;
   // Get the API key
   var apiKey = defaultClient.authentications["api-key"];
@@ -18,17 +17,16 @@ const sendEmailViaBrevo = async (emails, subject, body, config = {}) => {
   sendSmtpEmail.sender = { email: "noreply@tradedrop.com", name: "TradeDrop" };
 
   // Ensure to field is dynamically updated
-  sendSmtpEmail.to = emails.map(email => ({ email }));
+  sendSmtpEmail.to = emails.map((email) => ({ email }));
   try {
     // Send email
-   const data = await apiInstance.sendTransacEmail(sendSmtpEmail);
-   console.debug("🚀 ~ sendEmailViaBrevo ~ data:", data)
+    //  const data = await apiInstance.sendTransacEmail(sendSmtpEmail);
+    console.debug("🚀 ~ sendEmailViaBrevo ~ data:", "sendbox mails");
   } catch (error) {
     console.error("Error sending email:", error);
     // throw new Error (error.response.body)
   }
 };
-
 
 module.exports = {
   sendEmailViaBrevo,

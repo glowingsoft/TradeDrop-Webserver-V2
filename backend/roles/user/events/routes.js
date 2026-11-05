@@ -5,7 +5,10 @@ const { optionalAuth, gated } = require("../_shared/authGates");
 const router = express.Router();
 
 router.get("/events", optionalAuth, c.list);
+router.get("/events/all", optionalAuth, c.listAll);
+router.get("/events/me/active", ...gated, c.listMyActive);
 router.get("/events/:id", optionalAuth, c.get);
+router.delete("/events/:id", ...gated, c.remove);
 router.post("/events", ...gated, c.create);
 router.patch("/events/:id", ...gated, c.update);
 router.post("/events/:id/publish", ...gated, c.publish);

@@ -1,4 +1,5 @@
 const Circle = require("@models/Circle");
+const CircleMember = require("@models/CircleMember");
 const ConnectionRequest = require("@models/ConnectionRequest");
 const Event = require("@models/Event");
 const TapIn = require("@models/TapIn");
@@ -18,46 +19,44 @@ async function paged(query, model, page, limit, sort = { createdAt: -1 }) {
 }
 
 async function received(userId, page, limit) {
+  const [invitedIds, organizerCircleIds] = await Promise.all([
+    CircleMember.distinct("circleId", { userId, status: "invited" }),
+    CircleMember.distinct("circleId", { userId, status: "active", role: "organizer" }),
+  ]);
+  const requestedIds = organizerCircleIds.length
+    ? await CircleMember.distinct("circleId", {
+        circleId: { $in: organizerCircleIds },
+        status: "pending",
+        userId: { $ne: userId },
+      })
+    : [];
+  const circleFilter = { deletedAt: null, _id: { $in: [...invitedIds, ...requestedIds] } };
   const [connections, tapIns, circleItems, circleCount, organizerCircles, latestDrops] = await Promise.all([
     paged({ recipientId: userId, status: "pending" }, ConnectionRequest, page, limit),
     paged({ responderId: userId, status: "pending", deletedAt: null }, TapIn, page, limit),
-    Circle.find({
-      deletedAt: null,
-      $or: [
-        {
-          $and: [
-            { members: { $elemMatch: { userId, status: "active", role: "organizer" } } },
-            { members: { $elemMatch: { status: "pending", userId: { $ne: userId } } } },
-          ],
-        },
-        { members: { $elemMatch: { userId, status: "invited" } } },
-      ],
-    })
+    Circle.find(circleFilter)
       .sort({ updatedAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
-    Circle.countDocuments({
-      deletedAt: null,
-      $or: [
-        {
-          $and: [
-            { members: { $elemMatch: { userId, status: "active", role: "organizer" } } },
-            { members: { $elemMatch: { status: "pending", userId: { $ne: userId } } } },
-          ],
-        },
-        { members: { $elemMatch: { userId, status: "invited" } } },
-      ],
-    }),
-    Circle.find({ deletedAt: null, members: { $elemMatch: { userId, role: "organizer", status: "active" } } })
-      .select("_id")
-      .lean(),
+    Circle.countDocuments(circleFilter),
+    Circle.find({ deletedAt: null, _id: { $in: organizerCircleIds } }).select("_id").lean(),
     Drop.find({ ownerId: userId, deletedAt: null })
       .sort({ updatedAt: -1 })
       .limit(10)
       .select("_id title status date updatedAt")
       .lean(),
   ]);
+  const ownMemberships = await CircleMember.find({
+    circleId: { $in: circleItems.map((circle) => circle._id) },
+    userId,
+    status: { $in: ["pending", "invited"] },
+  }).lean();
+  const membershipsByCircle = new Map();
+  for (const member of ownMemberships) {
+    const key = String(member.circleId);
+    membershipsByCircle.set(key, [...(membershipsByCircle.get(key) || []), member]);
+  }
   const eventFilter = {
     circleId: { $in: organizerCircles.map((circle) => circle._id) },
     "rsvps": { $elemMatch: { status: "pending", userId: { $ne: userId } } },
@@ -84,7 +83,11 @@ async function received(userId, page, limit) {
       circleRequests: circleItems.map((circle) => ({
         circleId: idStr(circle._id),
         name: circle.name,
-        members: circle.members.filter((member) => String(member.userId) === String(userId) && ["pending", "invited"].includes(member.status)),
+        members: (membershipsByCircle.get(String(circle._id)) || []).map((member) => ({
+          userId: idStr(member.userId),
+          role: member.role,
+          status: member.status,
+        })),
       })),
       eventRequests: receivedEventRequests,
       latestDropActivity: latestDrops.map((drop) => ({
@@ -107,7 +110,7 @@ async function received(userId, page, limit) {
 async function sent(userId, page, limit) {
   const circleFilter = {
     deletedAt: null,
-    members: { $elemMatch: { userId, status: "pending" } },
+    _id: { $in: await CircleMember.distinct("circleId", { userId, status: "pending" }) },
   };
   const eventFilter = { "rsvps.userId": userId };
   const [connections, tapIns, circles, circleCount, events, eventCount] = await Promise.all([
@@ -133,7 +136,7 @@ async function sent(userId, page, limit) {
       circleRequests: circles.map((circle) => ({
         circleId: idStr(circle._id),
         name: circle.name,
-        status: circle.members.find((member) => String(member.userId) === String(userId))?.status,
+        status: "pending",
       })),
       eventRsvps: events.map((event) => ({
         eventId: idStr(event._id),

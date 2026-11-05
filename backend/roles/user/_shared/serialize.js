@@ -22,4 +22,7 @@ function httpError(statusCode, translationKey, data = undefined) {
   return err;
 }
 
-module.exports = { idStr, idStrOrNull, mapIds, httpError };
+const isAdminUser = (user) =>
+  Boolean(user && (user.isAdmin === true || user.userType === "admin" || user.accountState?.userType === "admin"));
+
+module.exports = { idStr, idStrOrNull, mapIds, httpError, isAdminUser };

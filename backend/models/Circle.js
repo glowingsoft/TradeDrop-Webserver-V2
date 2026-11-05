@@ -1,38 +1,23 @@
 const mongoose = require("mongoose");
 
-const memberSchema = new mongoose.Schema(
-  {
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    role: { type: String, enum: ["member", "organizer"], default: "member" },
-    status: { type: String, enum: ["active", "pending", "invited", "declined", "left"], default: "active" },
-    invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
-    joinedAt: { type: Date, default: null },
-    updatedAt: { type: Date, default: Date.now },
+const pollSchema = new mongoose.Schema({
+  question: { type: String, required: true, trim: true, maxlength: 300 },
+  options: {
+    type: [{ type: String, trim: true, maxlength: 120 }],
+    validate: (options) => options.length >= 2 && options.length <= 8,
+    required: true,
   },
-  { _id: false },
-);
-
-const pollSchema = new mongoose.Schema(
-  {
-    question: { type: String, required: true, trim: true, maxlength: 300 },
-    options: {
-      type: [{ type: String, trim: true, maxlength: 120 }],
-      validate: (options) => options.length >= 2 && options.length <= 8,
-      required: true,
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  closesAt: { type: Date, required: true },
+  status: { type: String, enum: ["active", "closed"], default: "active" },
+  votes: [
+    {
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+      optionIndex: { type: Number, required: true },
+      votedAt: { type: Date, default: Date.now },
     },
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    closesAt: { type: Date, required: true },
-    status: { type: String, enum: ["active", "closed"], default: "active" },
-    votes: [
-      {
-        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-        optionIndex: { type: Number, required: true },
-        votedAt: { type: Date, default: Date.now },
-      },
-    ],
-  },
-  { _id: false },
-);
+  ],
+});
 
 const circleSchema = new mongoose.Schema(
   {
@@ -51,9 +36,9 @@ const circleSchema = new mongoose.Schema(
         validate: (coordinates) => coordinates.length === 2,
       },
     },
-    members: { type: [memberSchema], default: [] },
     conversationId: { type: mongoose.Schema.Types.ObjectId, ref: "Conversation", default: null },
-    poll: { type: pollSchema, default: null },
+    polls: [pollSchema],
+    status: { type: String, enum: ["active", "archived", "inactive"], default: "active" },
     archivedAt: { type: Date, default: null },
     deletedAt: { type: Date, default: null },
   },
@@ -62,8 +47,7 @@ const circleSchema = new mongoose.Schema(
 
 circleSchema.index({ location: "2dsphere" });
 circleSchema.index({ privacy: 1, deletedAt: 1, city: 1, createdAt: -1 });
-circleSchema.index({ "members.userId": 1, "members.status": 1 });
-circleSchema.index({ "members.userId": 1, "members.role": 1 });
-circleSchema.index({ "poll.status": 1, "poll.closesAt": 1 });
+circleSchema.index({ privacy: 1, deletedAt: 1, category: 1, createdAt: -1 });
+circleSchema.index({ "polls._id": 1, "polls.status": 1, "polls.closesAt": 1 });
 
 module.exports = mongoose.models.Circle || mongoose.model("Circle", circleSchema);

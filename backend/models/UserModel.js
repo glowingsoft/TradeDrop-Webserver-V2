@@ -403,9 +403,9 @@ userSchema.statics.findByCredentials = async (email, password, userType, timezon
     return { error: "incorrect_password" }; // Return an error key if password doesn't match
   }
 
-  if (timezone) {
+  if (timezone && user.timezone !== timezone) {
     user.timezone = timezone; // Update user's timezone if provided
-    user.save(); // Save the updated user document
+    await user.save();
   }
 
   return user; // Return the user object if login is successful

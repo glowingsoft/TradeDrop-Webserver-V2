@@ -34,32 +34,7 @@ const DISPUTE_OUTCOMES = [
 ];
 
 const MAX_ACTIVE_TRADES = 2;
-const MAX_EXPIRATION_DAYS = 365;
 const LOCATION_TYPES = ["neighborhood", "specific", "remote"];
-const EXPIRATION_UNIT_MS = {
-  h: 3600000,
-  hr: 3600000,
-  hrs: 3600000,
-  hour: 3600000,
-  hours: 3600000,
-  d: 86400000,
-  day: 86400000,
-  days: 86400000,
-  w: 604800000,
-  week: 604800000,
-  weeks: 604800000,
-};
-
-// "24h" | "3days" | "1 week" -> Date, empty -> null
-function parseExpiration(value, now = new Date()) {
-  if (value === undefined || value === null || value === "") return null;
-  const m = /^(\d+)\s*([a-z]+)$/.exec(String(value).trim().toLowerCase());
-  const unit = m && EXPIRATION_UNIT_MS[m[2]];
-  const amount = m ? Number(m[1]) : 0;
-  if (!unit || amount < 1 || amount * unit > MAX_EXPIRATION_DAYS * 86400000) throw httpError(400, "expiration_invalid");
-  return new Date(now.getTime() + amount * unit);
-}
-
 function parseOptionalDate(value, key) {
   if (value === undefined || value === null || value === "") return null;
   const d = new Date(value);
@@ -75,6 +50,66 @@ function parseLocationType(value) {
 
 function assertTimeRange(startTime, endTime) {
   if (startTime && endTime && endTime <= startTime) throw httpError(400, "time_range_invalid");
+}
+
+function parseTimeOfDay(value, key) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value.trim())) throw httpError(400, key);
+  return value.trim();
+}
+
+const TIMING_TYPES = ["specific", "range", "flexible"];
+
+// Returns only the timing fields present in body; selecting a timingType nulls fields that don't apply to it.
+// `current` supplies stored values so partial updates are validated against the merged result.
+// expiresAt is derived: tapInDeadline, else end of the specific date / range end, else none.
+function parseDropTiming(body = {}, current = {}) {
+  const out = {};
+  const type = body.timingType === undefined ? current.timingType : body.timingType || null;
+  if (type && !TIMING_TYPES.includes(type)) throw httpError(400, "timing_type_invalid");
+  if (body.timingType !== undefined) out.timingType = type;
+
+  if (body.date !== undefined) out.date = parseOptionalDate(body.date, "date_invalid");
+  if (body.startTime !== undefined) out.startTime = parseTimeOfDay(body.startTime, "start_time_invalid");
+  if (body.endTime !== undefined) out.endTime = parseTimeOfDay(body.endTime, "end_time_invalid");
+  if (body.dateFrom !== undefined) out.dateFrom = parseOptionalDate(body.dateFrom, "date_from_invalid");
+  if (body.dateTo !== undefined) out.dateTo = parseOptionalDate(body.dateTo, "date_to_invalid");
+  if (body.tapInDeadline !== undefined) {
+    out.tapInDeadline = parseOptionalDate(body.tapInDeadline, "tap_in_deadline_invalid");
+  }
+
+  if (type === "range" && ["date", "startTime", "endTime"].some((f) => body[f])) {
+    throw httpError(400, "timing_fields_mismatch");
+  }
+  if (type === "flexible" && ["date", "startTime", "endTime", "dateFrom", "dateTo"].some((f) => body[f])) {
+    throw httpError(400, "timing_fields_mismatch");
+  }
+  if (body.timingType !== undefined) {
+    if (type !== "specific") Object.assign(out, { date: null, startTime: null, endTime: null });
+    if (type !== "range") Object.assign(out, { dateFrom: null, dateTo: null });
+  }
+
+  const merged = (field) => (out[field] !== undefined ? out[field] : (current[field] ?? null));
+  if (type === "specific") {
+    if (merged("startTime") && merged("endTime")) assertTimeRange(merged("startTime"), merged("endTime"));
+    if (merged("endTime") && !merged("startTime")) throw httpError(400, "start_time_invalid");
+  }
+  if (type === "range" && merged("dateFrom") && merged("dateTo") && merged("dateTo") < merged("dateFrom")) {
+    throw httpError(400, "date_range_invalid");
+  }
+  if (out.tapInDeadline && out.tapInDeadline <= new Date()) throw httpError(400, "tap_in_deadline_invalid");
+
+  if (Object.keys(out).length) {
+    const endDate = type === "specific" ? merged("date") : type === "range" ? merged("dateTo") : null;
+    const endOfDay = endDate ? new Date(new Date(endDate).setUTCHours(23, 59, 59, 999)) : null;
+    out.expiresAt = merged("tapInDeadline") || endOfDay;
+  }
+  return out;
+}
+
+function assertTimingComplete(drop) {
+  if (drop.timingType === "specific" && !drop.date) throw httpError(400, "date_required");
+  if (drop.timingType === "range" && (!drop.dateFrom || !drop.dateTo)) throw httpError(400, "date_range_required");
 }
 
 function activeTradeFilter(userId) {
@@ -205,6 +240,10 @@ function toDropView(drop, viewerId = null, { trade = null } = {}) {
     referenceImages: (drop.referenceImages || []).map((m) => getFullImageUrl(m)),
     startTime: drop.startTime || null,
     endTime: drop.endTime || null,
+    timingType: drop.timingType || null,
+    dateFrom: drop.dateFrom || null,
+    dateTo: drop.dateTo || null,
+    tapInDeadline: drop.tapInDeadline || null,
     expiresAt: drop.expiresAt || null,
     needCategoryId: idStr(drop.needCategoryId),
     offerCategoryId: idStr(drop.offerCategoryId),
@@ -324,17 +363,17 @@ async function parseDropContent(body = {}) {
   const hasGeo = lat != null && lng != null && !Number.isNaN(Number(lat)) && !Number.isNaN(Number(lng));
   const dropType = body.type === undefined ? "in_person" : String(body.type);
   if (!["in_person", "remote"].includes(dropType)) throw httpError(400, "drop_type_invalid");
-  const startTime = parseOptionalDate(body.startTime, "start_time_invalid");
-  const endTime = parseOptionalDate(body.endTime, "end_time_invalid");
-  assertTimeRange(startTime, endTime);
+  const timing = parseDropTiming(body);
   return {
+    startTime: null,
+    endTime: null,
+    date: null,
+    expiresAt: null,
+    ...timing,
     title: String(body.title).trim(),
     locationType: parseLocationType(body.locationType),
     type: dropType,
     referenceImages: stringArray(body.referenceImages, 10, "reference_images_invalid"),
-    startTime,
-    endTime,
-    expiresAt: parseExpiration(body.expiresIn ?? body.expiration),
     needText: String(needText).trim(),
     offerText: String(offerText).trim(),
     needCategoryId: String(needCategoryId),
@@ -342,7 +381,6 @@ async function parseDropContent(body = {}) {
     timingChip: chip._id,
     areaLabel: String(areaLabel).trim(),
     idea: idea ? String(idea) : "",
-    date: date ? new Date(date) : null,
     lat: hasGeo ? Number(lat) : null,
     lng: hasGeo ? Number(lng) : null,
     location: hasGeo ? [Number(lng), Number(lat)] : undefined,
@@ -417,7 +455,8 @@ module.exports = {
   toTradeView,
   toDisputeView,
   parseDropContent,
-  parseExpiration,
+  parseDropTiming,
+  assertTimingComplete,
   parseOptionalDate,
   parseLocationType,
   assertTimeRange,

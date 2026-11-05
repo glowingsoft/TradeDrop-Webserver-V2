@@ -1,37 +1,59 @@
 const mongoose = require("mongoose");
 const Circle = require("@models/Circle");
+const Category = require("@models/Category");
+const UserReport = require("@models/UserReport");
 const Event = require("@models/Event");
+const Connection = require("@models/Connection");
+const ConnectionRequest = require("@models/ConnectionRequest");
+const { getFullImageUrl } = require("@helperUtils/imageHelper");
+const CircleMember = require("@models/CircleMember");
+const membership = require("./membership");
 const { Drop } = require("@models/Drop");
 const { User } = require("@UsersModel");
 const { sendUserNotifications } = require("@backend/controllers/communicationController");
 const Conversation = require("@backend/commonModules/chatModule/models/Conversation");
 const Message = require("@backend/commonModules/chatModule/models/Message");
 const { parsePaginationParams, generateMeta } = require("@helperUtils/responseUtil");
-const { httpError, idStr } = require("../_shared/serialize");
+const { httpError, idStr, isAdminUser } = require("../_shared/serialize");
 
 const PRIVACY_MODES = ["open", "approval", "invite_only"];
+const MAX_ACTIVE_POLLS = 3;
+const DEFAULT_POLL_DURATION_MS = 2 * 24 * 60 * 60 * 1000;
+
+const MEMBER_PREVIEW_LIMIT = 50;
+const LATEST_MEMBERS_LIMIT = 3;
+const EMPTY_COUNTS = { memberCount: 0, pendingRequestCount: 0, pendingInvitationCount: 0, joinedInvitationCount: 0 };
 
 function objectId(id, key = "circle_not_found") {
   if (!mongoose.isValidObjectId(id)) throw httpError(404, key);
   return new mongoose.Types.ObjectId(id);
 }
 
-function memberFor(circle, userId) {
-  return (circle.members || []).find(
-    (member) => String(member.userId) === String(userId) && member.status === "active",
-  );
-}
-
-function requireMember(circle, userId) {
-  const member = memberFor(circle, userId);
+async function requireMember(circle, userId, session = null) {
+  const member = await membership.getMember(circle._id, userId, { session });
   if (!member) throw httpError(403, "circle_membership_required");
   return member;
 }
 
-function requireOrganizer(circle, userId) {
-  const member = requireMember(circle, userId);
+async function requireOrganizer(circle, userId, session = null) {
+  const member = await requireMember(circle, userId, session);
   if (member.role !== "organizer") throw httpError(403, "circle_organizer_required");
   return member;
+}
+
+function pollView(poll, now = new Date()) {
+  const status = poll.closesAt <= now ? "closed" : poll.status;
+  const votes = poll.votes || [];
+  return {
+    _id: idStr(poll._id),
+    question: poll.question,
+    options: poll.options,
+    createdBy: idStr(poll.createdBy),
+    closesAt: poll.closesAt,
+    status,
+    voteCount: votes.length,
+    voteCounts: poll.options.map((_, index) => votes.filter((vote) => vote.optionIndex === index).length),
+  };
 }
 
 async function loadCircle(circleId, session = null) {
@@ -42,52 +64,113 @@ async function loadCircle(circleId, session = null) {
   return circle;
 }
 
-function circleView(circle, { includeMembers = false } = {}) {
-  const members = circle.members || [];
-  const active = members.filter((member) => member.status === "active");
-  const pending = members.filter((member) => member.status === "pending");
-  const invited = members.filter((member) => member.status === "invited");
-  const result = {
+function circleView(circle, counts = EMPTY_COUNTS) {
+  const polls = (circle.polls || []).map((poll) => pollView(poll));
+  return {
     _id: idStr(circle._id),
     creatorId: idStr(circle.creatorId),
     name: circle.name,
     purpose: circle.purpose,
-    category: idStr(circle.category),
+    category:
+      circle.category && typeof circle.category === "object" && circle.category._id
+        ? { _id: idStr(circle.category._id), name: circle.category.name || "" }
+        : idStr(circle.category),
     coverImage: circle.coverImage || "",
     city: circle.city || "",
     privacy: circle.privacy,
+    status: circle.status || "active",
     location: circle.location || null,
     conversationId: circle.conversationId ? idStr(circle.conversationId) : null,
-    memberCount: active.length,
-    pendingRequestCount: pending.length,
-    joinedInvitationCount: active.filter((member) => member.invitedBy).length,
-    pendingInvitationCount: invited.length,
-    poll: circle.poll
-      ? {
-          question: circle.poll.question,
-          options: circle.poll.options,
-          createdBy: idStr(circle.poll.createdBy),
-          closesAt: circle.poll.closesAt,
-          status: circle.poll.closesAt <= new Date() ? "closed" : circle.poll.status,
-          voteCount: circle.poll.votes?.length || 0,
-          voteCounts: circle.poll.options.map(
-            (_, index) => circle.poll.votes.filter((vote) => vote.optionIndex === index).length,
-          ),
-        }
-      : null,
+    memberCount: counts.memberCount,
+    pendingRequestCount: counts.pendingRequestCount,
+    joinedInvitationCount: counts.joinedInvitationCount,
+    pendingInvitationCount: counts.pendingInvitationCount,
+    polls,
+    poll: polls[polls.length - 1] || null,
     createdAt: circle.createdAt,
     updatedAt: circle.updatedAt,
   };
-  if (includeMembers) {
-    result.members = active.map((member) => ({
-      userId: idStr(member.userId),
+}
+
+function memberCountExpression(status, field = "count") {
+  return {
+    $ifNull: [
+      {
+        $arrayElemAt: [
+          {
+            $map: {
+              input: {
+                $filter: {
+                  input: "$_memberCounts",
+                  as: "entry",
+                  cond: { $eq: ["$$entry._id", status] },
+                },
+              },
+              as: "entry",
+              in: `$$entry.${field}`,
+            },
+          },
+          0,
+        ],
+      },
+      0,
+    ],
+  };
+}
+
+async function presentCircles(circles) {
+  if (!circles.length) return [];
+  const counts = await membership.countsFor(circles.map((circle) => circle._id));
+  return circles.map((circle) => circleView(circle, counts.get(String(circle._id)) || EMPTY_COUNTS));
+}
+
+async function presentCircle(circle, { includeMembers = false } = {}) {
+  const [view] = await presentCircles([circle]);
+  if (!includeMembers) return view;
+  const [pending, invited] = await Promise.all(
+    ["pending", "invited"].map((status) =>
+      CircleMember.find({ circleId: circle._id, status })
+        .sort({ joinedAt: 1, _id: 1 })
+        .limit(MEMBER_PREVIEW_LIMIT)
+        .lean(),
+    ),
+  );
+  view.pendingMembers = pending.map((member) => ({ userId: idStr(member.userId), status: member.status }));
+  view.pendingInvitations = invited.map((member) => ({ userId: idStr(member.userId), status: member.status }));
+  return view;
+}
+
+async function listMembers(userId, circleId, req) {
+  const circle = await loadCircle(circleId);
+  const status = req.query.status || "active";
+  if (!["active", "pending", "invited"].includes(status)) throw httpError(400, "circle_member_status_invalid");
+  if (status === "active" && !isAdminUser(req.user)) await requireMember(circle, userId);
+  else if (status !== "active" && !isAdminUser(req.user)) await requireOrganizer(circle, userId);
+  const { page, limit } = parsePaginationParams(req);
+  const filter = { circleId: circle._id, status };
+  const [items, total] = await Promise.all([
+    CircleMember.find(filter)
+      .populate("userId", { name: 1, handle: 1, profileIcon: 1 })
+      .sort({ joinedAt: 1, _id: 1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    CircleMember.countDocuments(filter),
+  ]);
+  return {
+    data: items.map((member) => ({
+      user: {
+        _id: idStr(member.userId?._id),
+        name: member.userId?.name || "",
+        handle: member.userId?.handle || "",
+        profileIcon: member.userId?.profileIcon ? getFullImageUrl(member.userId.profileIcon) : "",
+      },
       role: member.role,
+      status: member.status,
       joinedAt: member.joinedAt,
-    }));
-    result.pendingMembers = pending.map((member) => ({ userId: idStr(member.userId), status: member.status }));
-    result.pendingInvitations = invited.map((member) => ({ userId: idStr(member.userId), status: member.status }));
-  }
-  return result;
+    })),
+    meta: generateMeta(page, limit, total),
+  };
 }
 
 async function withTransaction(fn) {
@@ -125,7 +208,9 @@ async function createCircle(userId, body = {}) {
     throw httpError(400, "circle_location_invalid");
   }
 
-  return withTransaction(async (session) => {
+  const inviteeIds = await resolveInvitees(userId, body.memberIds ?? body.userIds ?? []);
+
+  const created = await withTransaction(async (session) => {
     const [conversation] = await Conversation.create(
       [
         {
@@ -150,16 +235,280 @@ async function createCircle(userId, body = {}) {
           city: String(body.city || "").trim(),
           privacy,
           ...(coordinates ? { location: { type: "Point", coordinates } } : {}),
-          members: [{ userId, role: "organizer", status: "active", joinedAt: new Date() }],
           conversationId: conversation._id,
         },
       ],
       { session },
     );
+    await CircleMember.insertMany(
+      [
+        { circleId: circle._id, userId, role: "organizer", status: "active", joinedAt: new Date() },
+        ...inviteeIds.map((id) => ({
+          circleId: circle._id,
+          userId: id,
+          role: "member",
+          status: "invited",
+          invitedBy: userId,
+        })),
+      ],
+      { session },
+    );
     conversation.circleId = circle._id;
     await conversation.save({ session });
-    return circleView(circle);
+    return circle;
   });
+  const view = await presentCircle(created);
+  if (inviteeIds.length) {
+    sendUserNotifications({
+      recipientIds: inviteeIds,
+      sender: userId,
+      title: "Circle invitation",
+      body: `You were invited to join ${created.name}.`,
+      data: { type: "circle_invitation", objectType: "circle" },
+      objectId: created._id,
+    });
+  }
+  return view;
+}
+
+async function resolveInvitees(organizerId, userIds) {
+  if (!Array.isArray(userIds) || userIds.length > 50) throw httpError(400, "circle_invite_list_invalid");
+  const ids = [...new Set(userIds.map((id) => String(objectId(id, "user_not_found"))))].filter(
+    (id) => id !== String(organizerId),
+  );
+  if (!ids.length) return ids;
+  const users = await User.find({ _id: { $in: ids }, deletedAt: null })
+    .select("_id")
+    .lean();
+  if (users.length !== ids.length) throw httpError(404, "user_not_found");
+  const connections = await Connection.find({
+    status: "active",
+    $or: [
+      { userA: organizerId, userB: { $in: ids } },
+      { userB: organizerId, userA: { $in: ids } },
+    ],
+  })
+    .select("userA userB")
+    .lean();
+  const connected = new Set(
+    connections.map((item) => (String(item.userA) === String(organizerId) ? String(item.userB) : String(item.userA))),
+  );
+  if (ids.some((id) => !connected.has(id))) throw httpError(403, "circle_invitee_not_connected");
+  return ids;
+}
+
+async function listAllCircles(req, { excludeUserIds = [] } = {}) {
+  const { page, limit } = parsePaginationParams(req);
+  const { keyword, city, category, privacy, status } = req.query;
+  const match = { deletedAt: null };
+  const privacyValues = {
+    open: "open",
+    "invite-only": "invite_only",
+    invite_only: "invite_only",
+    "approval-required": "approval",
+    approval: "approval",
+  };
+  const isAdmin = isAdminUser(req.user);
+  if (privacy !== undefined) {
+    const requestedPrivacy = String(privacy).trim();
+    if (!Object.prototype.hasOwnProperty.call(privacyValues, requestedPrivacy)) {
+      throw httpError(400, "circle_privacy_invalid");
+    }
+    const storedPrivacy = privacyValues[requestedPrivacy];
+    match.privacy = storedPrivacy;
+    if (storedPrivacy === "invite_only" && !isAdmin) {
+      match._id = { $in: await membership.circleIdsFor(req.user?._id) };
+    }
+  } else if (!isAdmin) {
+    match.privacy = { $in: ["open", "approval"] };
+  }
+  if (status !== undefined) {
+    if (!["active", "reported"].includes(status)) throw httpError(400, "circle_status_invalid");
+    if (status === "active") match.archivedAt = null;
+  }
+  if (excludeUserIds.length) match.creatorId = { $nin: excludeUserIds };
+  if (city !== undefined && String(city).trim()) {
+    match.city = { $regex: `^${escapeRegex(String(city).trim())}$`, $options: "i" };
+  }
+  if (category) {
+    if (!mongoose.isValidObjectId(category)) throw httpError(400, "circle_category_invalid");
+    match.category = new mongoose.Types.ObjectId(category);
+  }
+  if (keyword !== undefined && String(keyword).trim()) {
+    const expression = { $regex: escapeRegex(String(keyword).trim()), $options: "i" };
+    const organizers = await User.find({ name: expression }).select("_id").limit(1000).lean();
+    const organizerCircleIds = organizers.length
+      ? await CircleMember.distinct("circleId", {
+          userId: { $in: organizers.map((user) => user._id) },
+          role: "organizer",
+          status: "active",
+        })
+      : [];
+    match.$or = [
+      { name: expression },
+      { purpose: expression },
+      { description: expression },
+      { city: expression },
+      ...(organizerCircleIds.length ? [{ _id: { $in: organizerCircleIds } }] : []),
+    ];
+  }
+  const pipeline = [{ $match: match }];
+  const reportLookup = {
+    $lookup: {
+      from: UserReport.collection.name,
+      let: { circleId: "$_id" },
+      pipeline: [
+        {
+          $match: {
+            resourceType: "circle",
+            $expr: { $eq: ["$resourceId", "$$circleId"] },
+          },
+        },
+        { $count: "count" },
+      ],
+      as: "_reportCount",
+    },
+  };
+  const beforeFacet = [
+    ...pipeline,
+    {
+      $lookup: {
+        from: Category.collection.name,
+        localField: "category",
+        foreignField: "_id",
+        pipeline: [{ $project: { name: 1 } }],
+        as: "category",
+      },
+    },
+    {
+      $set: { category: { $first: "$category" } },
+    },
+  ];
+  if (status === "reported") {
+    beforeFacet.push(reportLookup, {
+      $set: { reports: { $ifNull: [{ $arrayElemAt: ["$_reportCount.count", 0] }, 0] } },
+      $match: { reports: { $gt: 0 } },
+    });
+  }
+  const now = new Date();
+  const [result, categories] = await Promise.all([
+    Circle.aggregate([
+      ...beforeFacet,
+      {
+        $facet: {
+          items: [
+            { $sort: { createdAt: -1, _id: -1 } },
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+            {
+              $lookup: {
+                from: CircleMember.collection.name,
+                let: { circleId: "$_id" },
+                pipeline: [
+                  {
+                    $match: {
+                      role: "organizer",
+                      status: "active",
+                      $expr: { $eq: ["$circleId", "$$circleId"] },
+                    },
+                  },
+                  { $limit: 1 },
+                  {
+                    $lookup: {
+                      from: User.collection.name,
+                      localField: "userId",
+                      foreignField: "_id",
+                      pipeline: [{ $project: { name: 1, handle: 1, profileIcon: 1 } }],
+                      as: "user",
+                    },
+                  },
+                  { $project: { user: { $first: "$user" } } },
+                ],
+                as: "_organizer",
+              },
+            },
+            { $set: { organizer: { $first: "$_organizer.user" } } },
+          ],
+          total: [{ $count: "count" }],
+          count: [
+            {
+              $lookup: {
+                from: CircleMember.collection.name,
+                let: { circleId: "$_id" },
+                pipeline: [
+                  {
+                    $match: {
+                      status: { $in: ["active", "pending", "invited"] },
+                      $expr: { $eq: ["$circleId", "$$circleId"] },
+                    },
+                  },
+                  { $group: { _id: "$status", count: { $sum: 1 } } },
+                ],
+                as: "_memberCounts",
+              },
+            },
+            ...(status === "reported" ? [] : [reportLookup]),
+            {
+              $set: {
+                memberCount: memberCountExpression("active"),
+                reports: { $ifNull: [{ $arrayElemAt: ["$_reportCount.count", 0] }, 0] },
+                activePools: {
+                  $size: {
+                    $filter: {
+                      input: { $ifNull: ["$polls", []] },
+                      as: "poll",
+                      cond: {
+                        $and: [{ $eq: ["$$poll.status", "active"] }, { $gt: ["$$poll.closesAt", now] }],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            {
+              $group: {
+                _id: null,
+                total: { $sum: 1 },
+                members: { $sum: "$memberCount" },
+                reports: { $sum: "$reports" },
+                activePools: { $sum: "$activePools" },
+              },
+            },
+          ],
+        },
+      },
+    ]),
+    Category.find({ status: "active" }, { _id: 1, name: 1 }).sort({ sortOrder: 1, _id: 1 }).lean(),
+  ]);
+  const items = result?.[0]?.items || [];
+  const totalRecords = result?.[0]?.total?.[0]?.count || 0;
+  const data = items.map((circle) => {
+    const { memberCount, pendingRequestCount, joinedInvitationCount, pendingInvitationCount, ...view } =
+      circleView(circle);
+    return {
+      ...view,
+      coverImage: circle.coverImage ? getFullImageUrl(circle.coverImage) : "",
+      organizer: circle.organizer
+        ? {
+            _id: idStr(circle.organizer._id),
+            name: circle.organizer.name || "",
+            handle: circle.organizer.handle || "",
+            profileIcon: circle.organizer.profileIcon ? getFullImageUrl(circle.organizer.profileIcon) : "",
+          }
+        : null,
+    };
+  });
+  const meta = generateMeta(page, limit, totalRecords);
+  meta.count = result?.[0]?.count?.[0] || {
+    total: 0,
+    members: 0,
+    reports: 0,
+    activePools: 0,
+  };
+  delete meta.count._id;
+  meta.categories = categories;
+  meta.privacy = ["open", "invite-only", "approval-required"];
+  return { data, meta };
 }
 
 async function listCircles(req, { excludeUserIds = [] } = {}) {
@@ -185,7 +534,10 @@ async function listCircles(req, { excludeUserIds = [] } = {}) {
       String(lng).trim() === "" ||
       !Number.isFinite(Number(lat)) ||
       !Number.isFinite(Number(lng)) ||
-      Number(lat) < -90 || Number(lat) > 90 || Number(lng) < -180 || Number(lng) > 180)
+      Number(lat) < -90 ||
+      Number(lat) > 90 ||
+      Number(lng) < -180 ||
+      Number(lng) > 180)
   ) {
     throw httpError(400, "circle_location_invalid");
   }
@@ -216,16 +568,18 @@ async function listCircles(req, { excludeUserIds = [] } = {}) {
       },
     },
   ]);
-  const data = (result?.items || []).map((circle) => ({
-    ...circleView(circle),
-    distanceMeters: circle.distanceMeters ?? null,
-  }));
+  const circles = result?.items || [];
+  const data = circles.map((circle) => {
+    const { memberCount, pendingRequestCount, joinedInvitationCount, pendingInvitationCount, ...view } =
+      circleView(circle);
+    return { ...view, distanceMeters: circle.distanceMeters ?? null };
+  });
   return { data, meta: generateMeta(page, limit, result?.total?.[0]?.count || 0) };
 }
 
 async function listMyCircles(userId, req) {
   const { page, limit } = parsePaginationParams(req);
-  const filter = { members: { $elemMatch: { userId, status: "active" } }, deletedAt: null };
+  const filter = { _id: { $in: await membership.circleIdsFor(userId) }, deletedAt: null };
   const keyword = String(req.query.keyword || "").trim();
   if (keyword) {
     const expression = { $regex: escapeRegex(keyword), $options: "i" };
@@ -239,16 +593,84 @@ async function listMyCircles(userId, req) {
       .lean(),
     Circle.countDocuments(filter),
   ]);
-  return { data: items.map((item) => circleView(item)), meta: generateMeta(page, limit, total) };
+  return { data: await presentCircles(items), meta: generateMeta(page, limit, total) };
 }
 
-async function getCircle(circleId, viewerId = null) {
+async function latestMembersFor(circleId, viewerId = null) {
+  const rows = await CircleMember.find({ circleId, status: "active" })
+    .sort({ joinedAt: -1, _id: -1 })
+    .limit(LATEST_MEMBERS_LIMIT)
+    .select("userId role joinedAt")
+    .lean();
+  if (!rows.length) return [];
+  const userIds = rows.map((row) => row.userId);
+  const [users, connections, requests] = await Promise.all([
+    User.find({ _id: { $in: userIds } })
+      .select("name handle profileIcon")
+      .lean(),
+    viewerId
+      ? Connection.find({
+          status: "active",
+          $or: [
+            { userA: viewerId, userB: { $in: userIds } },
+            { userB: viewerId, userA: { $in: userIds } },
+          ],
+        })
+          .select("userA userB")
+          .lean()
+      : [],
+    viewerId
+      ? ConnectionRequest.find({
+          pairKey: { $in: userIds.map((id) => Connection.pairKeyFor(viewerId, id)) },
+          status: { $in: ["pending", "declined"] },
+        })
+          .sort({ createdAt: -1 })
+          .lean()
+      : [],
+  ]);
+  const userById = new Map(users.map((user) => [String(user._id), user]));
+  const connectedIds = new Set(
+    connections.map((item) => (String(item.userA) === String(viewerId) ? String(item.userB) : String(item.userA))),
+  );
+  const requestByPair = new Map();
+  for (const request of requests) {
+    if (!requestByPair.has(request.pairKey)) requestByPair.set(request.pairKey, request);
+  }
+  return rows.map((row) => {
+    const id = String(row.userId);
+    const user = userById.get(id);
+    let connectionStatus = null;
+    let canSendConnectionRequest = false;
+    if (viewerId) {
+      const latest = requestByPair.get(Connection.pairKeyFor(viewerId, row.userId));
+      const incoming = latest?.status === "pending" && String(latest.recipientId) === String(viewerId);
+      const outgoing = latest?.status === "pending" && String(latest.requesterId) === String(viewerId);
+      const inCooldown = latest?.status === "declined" && latest.cooldownUntil > new Date();
+      if (id === String(viewerId)) connectionStatus = "self";
+      else if (connectedIds.has(id)) connectionStatus = "connected";
+      else if (incoming) connectionStatus = "incoming_request";
+      else if (outgoing) connectionStatus = "request_sent";
+      else connectionStatus = latest?.status === "declined" ? "declined" : "not_connected";
+      canSendConnectionRequest = ["not_connected", "declined"].includes(connectionStatus) && !inCooldown;
+    }
+    return {
+      userId: id,
+      name: user?.name || "",
+      handle: user?.handle || "",
+      profileIcon: user?.profileIcon ? getFullImageUrl(user.profileIcon) : "",
+      role: row.role,
+      joinedAt: row.joinedAt,
+      connectionStatus,
+      canSendConnectionRequest,
+    };
+  });
+}
+
+async function getCircle(circleId, viewerId = null, isAdmin = false) {
   const circle = await loadCircle(circleId);
-  const isMember = viewerId && memberFor(circle, viewerId);
-  if (circle.privacy === "invite_only" && !isMember) throw httpError(404, "circle_not_found");
-  const memberIds = (circle.members || [])
-    .filter((member) => member.status === "active")
-    .map((member) => member.userId);
+  const isMember = Boolean(viewerId && (await membership.getMember(circle._id, viewerId)));
+  if (circle.privacy === "invite_only" && !isMember && !isAdmin) throw httpError(404, "circle_not_found");
+  const memberIds = await membership.activeMemberIds(circle._id);
   const [latestEvent, openDrops] = await Promise.all([
     Event.findOne({ circleId: circle._id, status: "published" }).sort({ date: -1, _id: -1 }).lean(),
     Drop.find({
@@ -261,7 +683,25 @@ async function getCircle(circleId, viewerId = null) {
       .select("_id ownerId title status date")
       .lean(),
   ]);
-  const view = circleView(circle, { includeMembers: Boolean(isMember) });
+  const view = await presentCircle(circle, { includeMembers: isMember || isAdmin });
+  const [category, organizerIds, latestMembers] = await Promise.all([
+    Category.findById(circle.category).select("name").lean(),
+    membership.organizerIds(circle._id),
+    circle.privacy === "open" || isMember || isAdmin ? latestMembersFor(circle._id, viewerId) : [],
+  ]);
+  const organizer = organizerIds.length
+    ? await User.findById(organizerIds[0]).select("name handle profileIcon").lean()
+    : null;
+  if (category) view.category = { _id: idStr(category._id), name: category.name || "" };
+  view.organizer = organizer
+    ? {
+        _id: idStr(organizer._id),
+        name: organizer.name || "",
+        handle: organizer.handle || "",
+        profileIcon: organizer.profileIcon ? getFullImageUrl(organizer.profileIcon) : "",
+      }
+    : null;
+  view.latestMembers = latestMembers;
   view.latestEvent = latestEvent
     ? { _id: idStr(latestEvent._id), name: latestEvent.name, date: latestEvent.date, status: latestEvent.status }
     : null;
@@ -305,10 +745,12 @@ async function updateCircle(userId, circleId, body = {}) {
     }
     set.location = { type: "Point", coordinates: [Number(body.lng), Number(body.lat)] };
   }
-  return withTransaction(async (session) => {
+  const updated = await withTransaction(async (session) => {
     const circle = await loadCircle(circleId, session);
-    requireOrganizer(circle, userId);
-    const updated = await Circle.findByIdAndUpdate(
+    if (!circle) throw httpError(404, "circle_not_found");
+    const user = await User.findById(userId).lean();
+    if (!isAdminUser(user)) await requireOrganizer(circle, userId, session);
+    const updatedCircle = await Circle.findByIdAndUpdate(
       circle._id,
       { $set: set },
       { new: true, runValidators: true, session },
@@ -319,52 +761,40 @@ async function updateCircle(userId, circleId, body = {}) {
       if (body.privacy !== undefined) conversationSet["groupSettings.isPrivate"] = body.privacy === "invite_only";
       await Conversation.updateOne({ _id: circle.conversationId }, { $set: conversationSet }, { session });
     }
-    return circleView(updated);
+    return updatedCircle;
   });
+  return presentCircle(updated);
 }
 
 async function joinCircle(userId, circleId) {
   const result = await withTransaction(async (session) => {
     const circle = await loadCircle(circleId, session);
-    if (memberFor(circle, userId)) throw httpError(409, "circle_already_joined");
+    const existing = await CircleMember.findOne({ circleId: circle._id, userId }).session(session);
+    if (existing?.status === "active") throw httpError(409, "circle_already_joined");
     const status = circle.privacy === "open" ? "active" : circle.privacy === "approval" ? "pending" : null;
     if (!status) throw httpError(403, "circle_invitation_required");
-    const existing = (circle.members || []).find((member) => String(member.userId) === String(userId));
-    const updated = existing
-      ? await Circle.findOneAndUpdate(
-          {
-            _id: circle._id,
-            deletedAt: null,
-            members: { $elemMatch: { userId, status: { $in: ["left", "declined"] } } },
-          },
-          {
-            $set: {
-              "members.$.role": "member",
-              "members.$.status": status,
-              "members.$.joinedAt": status === "active" ? new Date() : null,
-              "members.$.updatedAt": new Date(),
-            },
-          },
-          { new: true, session },
-        )
-      : await Circle.findOneAndUpdate(
-          { _id: circle._id, deletedAt: null, "members.userId": { $ne: userId } },
-          {
-            $push: {
-              members: { userId, role: "member", status, joinedAt: status === "active" ? new Date() : null },
-            },
-          },
-          { new: true, session },
-        );
-    if (!updated) throw httpError(409, "circle_membership_exists");
-    if (status === "active") await addChatMember(updated, userId, session);
-    return { status, circle, updated };
+    const joinedAt = status === "active" ? new Date() : null;
+    if (existing) {
+      const updated = await CircleMember.findOneAndUpdate(
+        { _id: existing._id, status: { $in: ["left", "declined"] } },
+        { $set: { role: "member", status, joinedAt } },
+        { new: true, session },
+      );
+      if (!updated) throw httpError(409, "circle_membership_exists");
+    } else {
+      try {
+        await CircleMember.create([{ circleId: circle._id, userId, role: "member", status, joinedAt }], { session });
+      } catch (error) {
+        if (error?.code === 11000) throw httpError(409, "circle_membership_exists");
+        throw error;
+      }
+    }
+    if (status === "active") await addChatMember(circle, userId, session);
+    return { status, circle };
   });
-  const { status, circle, updated } = result;
+  const { status, circle } = result;
   if (status === "pending") {
-    const organizerIds = circle.members
-      .filter((member) => member.status === "active" && member.role === "organizer")
-      .map((member) => String(member.userId));
+    const organizerIds = await membership.organizerIds(circle._id);
     if (organizerIds.length) {
       sendUserNotifications({
         recipientIds: organizerIds,
@@ -376,7 +806,7 @@ async function joinCircle(userId, circleId) {
       });
     }
   }
-  return { status, circle: circleView(updated) };
+  return { status, circle: await presentCircle(circle) };
 }
 
 async function addChatMember(circle, userId, session = null) {
@@ -403,65 +833,65 @@ async function addChatMember(circle, userId, session = null) {
   );
 }
 
-async function decideMembership(userId, circleId, targetUserId, approve) {
-  const updated = await withTransaction(async (session) => {
+async function decideMembership(userId, circleId, targetUserId, approve, isAdmin = false) {
+  const circle = await withTransaction(async (session) => {
     const circle = await loadCircle(circleId, session);
-    requireOrganizer(circle, userId);
+    if (!isAdmin) await requireOrganizer(circle, userId, session);
     const status = approve ? "active" : "declined";
-    const updatedCircle = await Circle.findOneAndUpdate(
-      { _id: circle._id, members: { $elemMatch: { userId: targetUserId, status: "pending" } } },
-      { $set: { "members.$.status": status, "members.$.joinedAt": approve ? new Date() : null, "members.$.updatedAt": new Date() } },
+    const member = await CircleMember.findOneAndUpdate(
+      { circleId: circle._id, userId: targetUserId, status: "pending" },
+      { $set: { status, joinedAt: approve ? new Date() : null } },
       { new: true, session },
     );
-    if (!updatedCircle) throw httpError(404, "circle_request_not_found");
-    if (approve) await addChatMember(updatedCircle, targetUserId, session);
-    return { circleId: circle._id, updatedCircle };
+    if (!member) throw httpError(404, "circle_request_not_found");
+    if (approve) await addChatMember(circle, targetUserId, session);
+    return circle;
   });
-  const { circleId: updatedCircleId, updatedCircle } = updated;
   sendUserNotifications({
     recipientIds: [String(targetUserId)],
     sender: userId,
     title: approve ? "Circle request approved" : "Circle request declined",
     body: approve ? "Your Circle membership request was approved." : "Your Circle membership request was declined.",
     data: { type: "circle_status", objectType: "circle" },
-    objectId: updatedCircleId,
+    objectId: circle._id,
   });
-  return circleView(updatedCircle);
+  return presentCircle(circle);
 }
 
 async function inviteUsers(userId, circleId, userIds = []) {
-  if (!Array.isArray(userIds) || !userIds.length || userIds.length > 50) throw httpError(400, "circle_invite_list_invalid");
+  if (!Array.isArray(userIds) || !userIds.length || userIds.length > 50)
+    throw httpError(400, "circle_invite_list_invalid");
   const circle = await loadCircle(circleId);
-  requireOrganizer(circle, userId);
-  if (circle.privacy !== "invite_only") throw httpError(409, "circle_not_invite_only");
-  const ids = [...new Set(userIds.map((id) => String(objectId(id, "user_not_found"))))];
-  const users = await User.find({ _id: { $in: ids }, deletedAt: null }).select("_id").lean();
-  if (users.length !== ids.length) throw httpError(404, "user_not_found");
-  const previouslyInvited = new Set(
-    (circle.members || [])
+  await requireOrganizer(circle, userId);
+  const ids = await resolveInvitees(userId, userIds);
+  if (!ids.length) throw httpError(400, "circle_invite_list_invalid");
+  const existing = await CircleMember.find({ circleId: circle._id, userId: { $in: ids } })
+    .select("userId status")
+    .lean();
+  const blocked = new Set(
+    existing
       .filter((member) => ["active", "pending", "invited"].includes(member.status))
       .map((member) => String(member.userId)),
   );
-  const newlyInvited = ids.filter((id) => !previouslyInvited.has(id));
-  const operations = ids.map((id) => {
-    const current = circle.members.find((member) => String(member.userId) === id);
-    const filter = current
-      ? { _id: circle._id, members: { $elemMatch: { userId: id, status: { $in: ["left", "declined"] } } } }
-      : { _id: circle._id, "members.userId": { $ne: id } };
-    const update = current
-      ? {
-          $set: {
-            "members.$.role": "member",
-            "members.$.status": "invited",
-            "members.$.invitedBy": userId,
-            "members.$.updatedAt": new Date(),
-          },
-        }
-      : { $push: { members: { userId: id, role: "member", status: "invited", invitedBy: userId } } };
-    return { updateOne: { filter, update } };
-  });
-  if (operations.length) await Circle.bulkWrite(operations);
-  const updated = await loadCircle(circleId);
+  const newlyInvited = ids.filter((id) => !blocked.has(id));
+  const operations = newlyInvited.flatMap((id) => [
+    {
+      updateOne: {
+        filter: { circleId: circle._id, userId: id, status: { $in: ["left", "declined"] } },
+        update: { $set: { role: "member", status: "invited", invitedBy: userId, joinedAt: null } },
+      },
+    },
+    {
+      updateOne: {
+        filter: { circleId: circle._id, userId: id },
+        update: {
+          $setOnInsert: { role: "member", status: "invited", invitedBy: userId, joinedAt: null },
+        },
+        upsert: true,
+      },
+    },
+  ]);
+  if (operations.length) await CircleMember.bulkWrite(operations);
   if (newlyInvited.length) {
     sendUserNotifications({
       recipientIds: newlyInvited,
@@ -472,27 +902,23 @@ async function inviteUsers(userId, circleId, userIds = []) {
       objectId: circle._id,
     });
   }
-  return circleView(updated, { includeMembers: true });
+  return presentCircle(circle, { includeMembers: true });
 }
 
 async function respondInvitation(userId, circleId, accept) {
-  const result = await withTransaction(async (session) => {
+  const circle = await withTransaction(async (session) => {
     const circle = await loadCircle(circleId, session);
     const status = accept ? "active" : "declined";
-    const updated = await Circle.findOneAndUpdate(
-      { _id: circle._id, members: { $elemMatch: { userId, status: "invited" } } },
-      { $set: { "members.$.status": status, "members.$.joinedAt": accept ? new Date() : null, "members.$.updatedAt": new Date() } },
+    const member = await CircleMember.findOneAndUpdate(
+      { circleId: circle._id, userId, status: "invited" },
+      { $set: { status, joinedAt: accept ? new Date() : null } },
       { new: true, session },
     );
-    if (!updated) throw httpError(404, "circle_invitation_not_found");
-    if (accept) await addChatMember(updated, userId, session);
-    return { circle, updated };
+    if (!member) throw httpError(404, "circle_invitation_not_found");
+    if (accept) await addChatMember(circle, userId, session);
+    return circle;
   });
-  const { circle, updated } = result;
-  const organizers = circle.members
-    .filter((member) => member.status === "active" && member.role === "organizer")
-    .map((member) => String(member.userId))
-    .filter((id) => id !== String(userId));
+  const organizers = (await membership.organizerIds(circle._id)).filter((id) => id !== String(userId));
   if (organizers.length) {
     sendUserNotifications({
       recipientIds: organizers,
@@ -503,21 +929,17 @@ async function respondInvitation(userId, circleId, accept) {
       objectId: circle._id,
     });
   }
-  return circleView(updated);
+  return presentCircle(circle);
 }
 
 async function leaveCircle(userId, circleId) {
   await withTransaction(async (session) => {
     const circle = await loadCircle(circleId, session);
-    const member = requireMember(circle, userId);
+    const member = await requireMember(circle, userId, session);
     if (String(circle.creatorId) === String(userId) || member.role === "organizer") {
       throw httpError(409, "transfer_organizer_or_delete_circle");
     }
-    await Circle.updateOne(
-      { _id: circle._id, "members.userId": userId, "members.status": "active" },
-      { $set: { "members.$.status": "left", "members.$.updatedAt": new Date() } },
-      { session },
-    );
+    await CircleMember.updateOne({ _id: member._id, status: "active" }, { $set: { status: "left" } }, { session });
     await Conversation.updateOne(
       { _id: circle.conversationId, "participants.user": userId },
       { $set: { "participants.$.isActive": false, "participants.$.removedAt": new Date() } },
@@ -530,31 +952,31 @@ async function leaveCircle(userId, circleId) {
 async function transferOrganizer(userId, circleId, targetUserId) {
   if (String(userId) === String(targetUserId)) throw httpError(400, "cannot_transfer_to_self");
   const circle = await loadCircle(circleId);
-  requireOrganizer(circle, userId);
-  if (!memberFor(circle, targetUserId)) throw httpError(400, "target_must_be_circle_member");
-  return withTransaction(async (session) => {
-    await Circle.updateOne(
-      { _id: circle._id, "members.userId": userId, "members.status": "active" },
-      { $set: { "members.$.role": "member" } },
+  await requireOrganizer(circle, userId);
+  if (!(await membership.getMember(circle._id, targetUserId))) throw httpError(400, "target_must_be_circle_member");
+  const updated = await withTransaction(async (session) => {
+    await CircleMember.updateOne(
+      { circleId: circle._id, userId, status: "active" },
+      { $set: { role: "member" } },
       { session },
     );
-    const updated = await Circle.findOneAndUpdate(
-      { _id: circle._id, "members.userId": targetUserId, "members.status": "active" },
-      {
-        $set: {
-          ...(String(circle.creatorId) === String(userId) ? { creatorId: targetUserId } : {}),
-          "members.$.role": "organizer",
-        },
-      },
-      { new: true, session },
+    await CircleMember.updateOne(
+      { circleId: circle._id, userId: targetUserId, status: "active" },
+      { $set: { role: "organizer" } },
+      { session },
     );
+    const updatedCircle =
+      String(circle.creatorId) === String(userId)
+        ? await Circle.findByIdAndUpdate(circle._id, { $set: { creatorId: targetUserId } }, { new: true, session })
+        : circle;
     await Conversation.updateOne(
       { _id: circle.conversationId },
       { $addToSet: { admins: targetUserId }, $pull: { admins: userId } },
       { session },
     );
-    return circleView(updated, { includeMembers: true });
+    return updatedCircle;
   });
+  return presentCircle(updated, { includeMembers: true });
 }
 
 async function deleteCircle(userId, circleId) {
@@ -563,7 +985,11 @@ async function deleteCircle(userId, circleId) {
   return withTransaction(async (session) => {
     const now = new Date();
     await Circle.updateOne({ _id: circle._id, deletedAt: null }, { $set: { deletedAt: now } }, { session });
-    await Event.updateMany({ circleId: circle._id, status: { $ne: "cancelled" } }, { $set: { status: "cancelled", cancelledAt: now } }, { session });
+    await Event.updateMany(
+      { circleId: circle._id, status: { $ne: "cancelled" } },
+      { $set: { status: "cancelled", cancelledAt: now } },
+      { session },
+    );
     const conversation = await Conversation.findById(circle.conversationId).session(session).lean();
     if (conversation) {
       await Message.updateMany({ conversationId: conversation._id }, { $set: { isDeleted: true } }, { session });
@@ -588,67 +1014,106 @@ async function createPoll(userId, circleId, body = {}) {
   ) {
     throw httpError(400, "circle_poll_invalid");
   }
-  const closesAt = new Date(body.closesAt);
-  if (Number.isNaN(closesAt.getTime()) || closesAt <= new Date()) throw httpError(400, "poll_close_date_invalid");
-  const circle = await loadCircle(circleId);
-  requireOrganizer(circle, userId);
   const now = new Date();
+  const closesAt =
+    body.closesAt === undefined || body.closesAt === null
+      ? new Date(now.getTime() + DEFAULT_POLL_DURATION_MS)
+      : new Date(body.closesAt);
+  if (Number.isNaN(closesAt.getTime()) || closesAt <= now) throw httpError(400, "poll_close_date_invalid");
+  const circle = await loadCircle(circleId);
+  await requireOrganizer(circle, userId);
+  const poll = {
+    _id: new mongoose.Types.ObjectId(),
+    question: String(body.question).trim(),
+    options,
+    createdBy: userId,
+    closesAt,
+    status: "active",
+    votes: [],
+  };
   const updated = await Circle.findOneAndUpdate(
     {
       _id: circle._id,
       deletedAt: null,
-      $or: [
-        { poll: null },
-        { "poll.status": "closed" },
-        { "poll.status": "active", "poll.closesAt": { $lte: now } },
-      ],
+      $expr: {
+        $lt: [
+          {
+            $size: {
+              $filter: {
+                input: { $ifNull: ["$polls", []] },
+                as: "poll",
+                cond: {
+                  $and: [{ $eq: ["$$poll.status", "active"] }, { $gt: ["$$poll.closesAt", now] }],
+                },
+              },
+            },
+          },
+          MAX_ACTIVE_POLLS,
+        ],
+      },
     },
-    { $set: { poll: { question: String(body.question).trim(), options, createdBy: userId, closesAt, status: "active", votes: [] } } },
+    { $push: { polls: poll } },
     { new: true, runValidators: true },
   );
-  if (!updated) throw httpError(409, "active_poll_exists");
-  return {
-    question: updated.poll.question,
-    options: updated.poll.options,
-    closesAt: updated.poll.closesAt,
-    status: updated.poll.status,
-    voteCount: updated.poll.votes.length,
-    voteCounts: updated.poll.options.map(
-      (_, voteIndex) => updated.poll.votes.filter((vote) => vote.optionIndex === voteIndex).length,
-    ),
-  };
+  if (!updated) throw httpError(409, "active_poll_limit_reached");
+  return pollView(updated.polls.find((item) => String(item._id) === String(poll._id)));
 }
 
-async function votePoll(userId, circleId, optionIndex) {
+async function votePoll(userId, circleId, pollId, optionIndex) {
+  if (optionIndex === undefined) {
+    optionIndex = pollId;
+    pollId = null;
+  }
   if (!Number.isInteger(Number(optionIndex))) throw httpError(400, "poll_option_invalid");
   const circle = await loadCircle(circleId);
-  requireMember(circle, userId);
-  const poll = circle.poll;
+  await requireMember(circle, userId);
+  const now = new Date();
+  let poll = pollId ? (circle.polls || []).find((item) => String(item._id) === String(pollId)) : null;
+  if (!pollId) {
+    const activePolls = (circle.polls || []).filter((item) => item.status === "active" && item.closesAt > now);
+    if (activePolls.length > 1) throw httpError(400, "poll_id_required");
+    poll = activePolls[0];
+  }
   if (!poll || poll.status !== "active" || poll.closesAt <= new Date()) throw httpError(409, "poll_closed");
   const index = Number(optionIndex);
   if (index < 0 || index >= poll.options.length) throw httpError(400, "poll_option_invalid");
   const updated = await Circle.findOneAndUpdate(
     {
       _id: circle._id,
-      "poll.status": "active",
-      "poll.closesAt": { $gt: new Date() },
-      "poll.options": poll.options,
-      "poll.votes.userId": { $ne: userId },
+      polls: {
+        $elemMatch: {
+          _id: poll._id,
+          status: "active",
+          closesAt: { $gt: now },
+          "votes.userId": { $ne: userId },
+        },
+      },
     },
-    { $push: { "poll.votes": { userId, optionIndex: index, votedAt: new Date() } } },
+    { $push: { "polls.$.votes": { userId, optionIndex: index, votedAt: now } } },
     { new: true, runValidators: true },
   );
   if (!updated) throw httpError(409, "poll_vote_duplicate_or_closed");
+  const updatedPoll = updated.polls.find((item) => String(item._id) === String(poll._id));
+  return { ...pollView(updatedPoll), myVote: index };
+}
+
+async function listPolls(userId, circleId, req) {
+  const circle = await loadCircle(circleId);
+  if (!isAdminUser(req.user)) await requireMember(circle, userId);
+  const { status } = req.query;
+  if (status !== undefined && !["active", "closed"].includes(status)) throw httpError(400, "poll_status_invalid");
+  const { page, limit } = parsePaginationParams(req);
+  const now = new Date();
+  const polls = (circle.polls || [])
+    .map((poll) => ({
+      ...pollView(poll, now),
+      myVote: (poll.votes || []).find((vote) => String(vote.userId) === String(userId))?.optionIndex ?? null,
+    }))
+    .filter((poll) => !status || poll.status === status)
+    .reverse();
   return {
-    question: updated.poll.question,
-    options: updated.poll.options,
-    closesAt: updated.poll.closesAt,
-    status: updated.poll.closesAt <= new Date() ? "closed" : updated.poll.status,
-    voteCount: updated.poll.votes.length,
-    voteCounts: updated.poll.options.map(
-      (_, voteIndex) => updated.poll.votes.filter((vote) => vote.optionIndex === voteIndex).length,
-    ),
-    myVote: index,
+    data: polls.slice((page - 1) * limit, page * limit),
+    meta: generateMeta(page, limit, polls.length),
   };
 }
 
@@ -656,11 +1121,22 @@ function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+async function toggleSuspendCircle(userId, circleId, isAdmin = false) {
+  const circle = await loadCircle(circleId);
+  if (!isAdmin) await requireOrganizer(circle, userId);
+  circle.status = circle.status === "inactive" ? "active" : "inactive";
+  await circle.save();
+  return presentCircle(circle);
+}
+
 module.exports = {
+  toggleSuspendCircle,
   createCircle,
   listCircles,
+  listAllCircles,
   listMyCircles,
   getCircle,
+  listMembers,
   updateCircle,
   joinCircle,
   decideMembership,
@@ -670,5 +1146,6 @@ module.exports = {
   transferOrganizer,
   deleteCircle,
   createPoll,
+  listPolls,
   votePoll,
 };

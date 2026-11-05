@@ -44,5 +44,6 @@ const userReportSchema = new mongoose.Schema(
 userReportSchema.index({ status: 1, createdAt: 1 });
 userReportSchema.index({ reporterId: 1, createdAt: -1 });
 userReportSchema.index({ reportedUserId: 1, createdAt: -1 });
+userReportSchema.index({ resourceType: 1, resourceId: 1 });
 
 module.exports = mongoose.models.UserReport || mongoose.model("UserReport", userReportSchema);

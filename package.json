@@ -10,6 +10,7 @@
     "test": "cross-env NODE_ENV=dev DEBUG_OTP=true mocha 'tests/tradedrop/**/*.mongo.test.js' --timeout 60000 --exit",
     "test:mongo": "cross-env NODE_ENV=dev DEBUG_OTP=true mocha 'tests/tradedrop/**/*.mongo.test.js' --timeout 60000 --exit",
     "migrate:trade-flow": "node backend/scripts/migrateTradeFlow.js",
+    "migrate:circle-members": "node backend/scripts/migrateCircleMembers.js",
     "test:all": "npm test && npm run test:mongo",
     "pm2:dev:start": "pm2 start backend/config/ecosystem.config.js --env dev",
     "pm2:dev:reload": "pm2 reload tradedrop-backend --update-env",
