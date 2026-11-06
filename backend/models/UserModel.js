@@ -6,6 +6,7 @@ const validator = require("validator");
 const { randomBytes } = require("crypto");
 const { generateSecureToken } = require("../helperUtils/secureToken");
 const { createVerificationLink, createResetPasswordLink, generateResetToken } = require("./userModelHelpers");
+const { MAX_PORTFOLIO_IMAGES } = require("../helperUtils/portfolioUtil");
 
 const USER_TYPES = ["guest", "user", "admin"];
 
@@ -259,6 +260,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    specialty: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     areaLabel: {
       type: String,
       default: "",
@@ -325,15 +331,18 @@ const userSchema = new mongoose.Schema(
       type: [
         {
           _id: { type: String },
-          imageUrl: { type: String, default: "" },
-          title: { type: String, default: "" },
-          tags: { type: [String], default: [] },
-          sortOrder: { type: Number, default: 0 },
-          crafts: {
-            type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
-            default: [],
+          imageUrls: {
+            type: [String],
+            default: undefined,
+            validate: {
+              validator: (urls) =>
+                !urls || (urls.length >= 1 && urls.length <= MAX_PORTFOLIO_IMAGES &&
+                  urls.every((url) => typeof url === "string" && url.trim())),
+              message: "Portfolio items must have between 1 and 6 image URLs",
+            },
           },
-          link: { type: String, default: "" },
+          title: { type: String, default: "" },
+          sortOrder: { type: Number, default: 0 },
         },
       ],
       default: [],
@@ -403,9 +412,9 @@ userSchema.statics.findByCredentials = async (email, password, userType, timezon
     return { error: "incorrect_password" }; // Return an error key if password doesn't match
   }
 
-  if (timezone) {
+  if (timezone && user.timezone !== timezone) {
     user.timezone = timezone; // Update user's timezone if provided
-    user.save(); // Save the updated user document
+    await user.save();
   }
 
   return user; // Return the user object if login is successful

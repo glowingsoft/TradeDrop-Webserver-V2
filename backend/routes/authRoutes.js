@@ -1,29 +1,11 @@
 const express = require("express");
 
-const {
-  loginTest,
-  socialAuth,
-  companyDetails,
-  verifyEmailViaLink,
-  resendEmailVerificationLink,
-  sendPasswordResetLink,
-  verifyPasswordResetLink,
-  resetPasswordViaLink,
-  checkEmailExistsAndVerified,
-  changePassword,
-  createAdmin,
-  hardDeleteAccount,
-  generateOtp,
-  verifyOtp,
-  resetPassword,
-} = require("../controllers/authController");
+const authController = require("../controllers/authController");
 
 const createRateLimiter = require("../helperUtils/rateLimiter");
 const roleMiddleware = require("../middlewares/roleMiddleware");
 const auth = require("../middlewares/authMiddleware");
-
-const tfAuth = require("../roles/user/auth/authController");
-const { authenticate } = require("../roles/user/auth/tfAuthMiddleware");
+const authenticate = auth;
 
 const router = express.Router();
 
@@ -42,65 +24,78 @@ const verifyPasswordResetLinkRateLimiter = createRateLimiter("link/reset-passwor
 const resetPasswordViaLinkRateLimiter = createRateLimiter("link/reset-password", 15, 15);
 const changePasswordRateLimiter = createRateLimiter("changePassword", 15, 10);
 
-/**
- * TradeDrop consumer auth always uses tfAuth controllers.
- */
-router.post("/register", signupRateLimiter, tfAuth.register);
-router.post("/login", loginRateLimiter, tfAuth.login);
-router.post("/otp/verify", verifyOtpRateLimiter, tfAuth.verifyOtp);
-router.post("/otp/resend", resendOtpRateLimiter, tfAuth.resendOtp);
-router.post("/password/forgot", generateOtpRateLimiter, tfAuth.forgotPassword);
-router.post("/password/reset", resetPasswordRateLimiter, tfAuth.resetPassword);
-router.post("/refresh", authenticate, tfAuth.refresh);
-router.post("/logout", authenticate, tfAuth.logout);
+router.post("/register", signupRateLimiter, authController.register);
+router.post("/login", loginRateLimiter, authController.login);
+router.post("/otp/verify", verifyOtpRateLimiter, (req, res) => {
+  req.body.type = req.body.type || "email";
+  req.body.otp = req.body.otp || req.body.code;
+  return authController.verifyOtp(req, res);
+});
+router.post("/otp/resend", resendOtpRateLimiter, (req, res) => {
+  req.body.type = req.body.type || "email";
+  req.body.purpose = req.body.purpose || "signup";
+  return authController.generateOtp(req, res);
+});
+router.post("/password/forgot", generateOtpRateLimiter, (req, res) => {
+  req.body.type = "email";
+  req.body.purpose = "forgot_password";
+  return authController.generateOtp(req, res);
+});
+router.post("/password/reset", resetPasswordRateLimiter, authController.resetPassword);
+router.post("/refresh", authenticate, authController.refresh);
+router.post("/logout", authenticate, authController.logout);
 
-router.post("/internal/admin/create", signupRateLimiter, createAdmin);
-router.post("/check-email-exists", checkEmailExistsAndVerified);
+router.post("/internal/admin/create", signupRateLimiter, authController.createAdmin);
+router.post("/check-email-exists", authController.checkEmailExistsAndVerified);
 if (process.env.NODE_ENV || "dev") {
-  router.post("/login-test", loginRateLimiterTest, loginTest);
+  router.post("/login-test", loginRateLimiterTest, authController.loginTest);
 }
 
 router.post("/forgot-password", generateOtpRateLimiter, (req, res, next) => {
-  return tfAuth.forgotPassword(req, res, next);
+  req.body.type = "email";
+  req.body.purpose = "forgot_password";
+  return authController.generateOtp(req, res, next);
 });
 
 router.post("/resend-otp/email", resendOtpRateLimiter, (req, res, next) => {
+  req.body.type = "email";
   req.body.purpose = req.body.purpose || "signup";
-  return tfAuth.resendOtp(req, res, next);
+  return authController.generateOtp(req, res, next);
 });
 
 router.post("/resend-otp/phone", resendOtpRateLimiter, (req, res, next) => {
   req.body.type = "phoneNumber";
-  generateOtp(req, res, next);
+  authController.generateOtp(req, res, next);
 });
 
 router.post("/verify-otp/email", verifyOtpRateLimiter, (req, res, next) => {
-  req.body.purpose = req.body.purpose || "signup";
-  return tfAuth.verifyOtp(req, res, next);
+  req.body.type = "email";
+  req.body.otp = req.body.otp || req.body.code;
+  return authController.verifyOtp(req, res, next);
 });
 
 router.post("/verify-otp/phone", verifyOtpRateLimiter, (req, res, next) => {
   req.body.type = "phoneNumber";
-  verifyOtp(req, res, next);
+  authController.verifyOtp(req, res, next);
 });
 
 router.post("/reset-password", resetPasswordRateLimiter, (req, res, next) => {
-  return tfAuth.resetPassword(req, res, next);
+  return authController.resetPassword(req, res, next);
 });
 
-router.delete("/delete-account", auth, hardDeleteAccount);
+router.delete("/delete-account", auth, authController.hardDeleteAccount);
 
-router.post("/social-auth", socialAuth);
+router.post("/social-auth", authController.socialAuth);
 
 // Magic-link routes unused by TradeDrop (OTP-only) — left mounted for legacy
-router.get("/link/verify-email", linkRateLimiterEmail, verifyEmailViaLink);
-router.post("/link/resend-email", resendEmailVerificationLinkRateLimiter, resendEmailVerificationLink);
-router.post("/link/send-password-reset", sendPasswordResetLinkRateLimiter, sendPasswordResetLink);
-router.get("/link/reset-password/verify", verifyPasswordResetLinkRateLimiter, verifyPasswordResetLink);
-router.post("/link/reset-password", resetPasswordViaLinkRateLimiter, resetPasswordViaLink);
+router.get("/link/verify-email", linkRateLimiterEmail, authController.verifyEmailViaLink);
+router.post("/link/resend-email", resendEmailVerificationLinkRateLimiter, authController.resendEmailVerificationLink);
+router.post("/link/send-password-reset", sendPasswordResetLinkRateLimiter, authController.sendPasswordResetLink);
+router.get("/link/reset-password/verify", verifyPasswordResetLinkRateLimiter, authController.verifyPasswordResetLink);
+router.post("/link/reset-password", resetPasswordViaLinkRateLimiter, authController.resetPasswordViaLink);
 
-router.post("/change-password", changePasswordRateLimiter, auth, changePassword);
+router.post("/change-password", changePasswordRateLimiter, auth, authController.changePassword);
 
-router.put("/company-details", auth, companyDetailsRateLimiter, roleMiddleware(["organizer"]), companyDetails);
+router.put("/company-details", auth, companyDetailsRateLimiter, roleMiddleware(["organizer"]), authController.companyDetails);
 
 module.exports = router;

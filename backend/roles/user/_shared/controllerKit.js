@@ -1,16 +1,21 @@
 ﻿const { sendResponse } = require("@helperUtils/responseUtil");
 const { User } = require("@UsersModel");
+const { isAdminUser } = require("./serialize");
 
 function handleError(res, error) {
   return sendResponse({
     res,
     statusCode: error.statusCode || 500,
     translationKey: error.translationKey || "internal_server",
+    data: error.data,
     error,
   });
 }
 
-const actorOf = (req) => ({ _id: req.user._id, isAdmin: req.user.userType === "admin" });
+const actorOf = (req) => ({
+  _id: req.user._id,
+  isAdmin: req.user.isAdmin === true || req.user.userType === "admin" || req.user.accountState?.userType === "admin",
+});
 
 // Wraps a service call that returns a single payload
 const one = (statusCode, translationKey, call) => async (req, res) => {
@@ -35,6 +40,7 @@ const list = (translationKey, call) => async (req, res) => {
 // Runs after authMiddleware: email verified + onboarding complete
 async function requireVerifiedOnboarded(req, res, next) {
   try {
+    if (isAdminUser(req.user)) return next();
     const user = await User.findById(req.user?._id).select("verificationStatus onboarding deletedAt").lean();
     if (!user || user.deletedAt) return sendResponse({ res, statusCode: 401, translationKey: "account_not_found" });
     if (user.verificationStatus?.email !== "verified") {

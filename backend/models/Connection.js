@@ -10,7 +10,7 @@ const connectionSchema = new mongoose.Schema(
     userB: { type: ObjectId, ref: "User", required: true },
     source: { type: String, default: "trade" },
     completedCount: { type: Number, default: 0 },
-    status: { type: String, enum: ["active", "blocked"], default: "active" },
+    status: { type: String, enum: ["active", "blocked", "removed"], default: "active" },
   },
   { timestamps: true },
 );

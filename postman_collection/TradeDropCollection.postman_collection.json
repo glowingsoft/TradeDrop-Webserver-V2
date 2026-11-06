@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "d7a140be-98fd-4df2-ac01-c7287defd4c7",
     "name": "TradeDropCollection",
-    "description": "TradeDrop consumer APIs (from /api/v1/docs/openapi.json) + legacy Admin Panel utilities.\n\n**Base URL env var `url`:** `http://localhost:4020/api/v1/` (trailing slash required)\n\n**Auth:** collection Bearer `{{token}}` — Login/Register/Verify OTP scripts save token + otp.\n\n**IDs:** set `categoryId`, `dropId`, `tapInId`, `tradeId`, `portfolioId`, `handle` after list/create calls.",
+    "description": "TradeDrop consumer APIs (from /api/v1/docs/openapi.json) + legacy Admin Panel utilities.\n\n**Base URL env var `url`:** `http://localhost:4020/api/v1/` (trailing slash required)\n\n**Auth:** collection Bearer `{{token}}` — Login/Register/Verify OTP scripts save token + otp.\n\n**IDs:** set `categoryId`, `dropId`, `tapInId`, `tradeId`, `portfolioId`, `circleId`, `eventId`, `connectionRequestId`, `reportId`, and `handle` after list/create calls. Portfolio items use a single `imageUrl`. See the **V2 Backend APIs** folder for new endpoints.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "36690355"
   },
@@ -986,7 +986,7 @@
                 "header": [],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n    \"needText\": \"Need a model for golden hour\",\n    \"offerText\": \"Digitals + edited selects\",\n    \"needCategoryId\": \"{{categoryId}}\",\n    \"offerCategoryId\": \"{{categoryId}}\",\n    \"timingChip\": \"this_week\",\n    \"areaLabel\": \"Soho\",\n    \"lat\": 40.7234567,\n    \"lng\": -74.0021234,\n    \"detail\": \"Natural light preferred\"\n}",
+                  "raw": "{\n    \"needText\": \"Need a model for golden hour\",\n    \"offerText\": \"Digitals + edited selects\",\n    \"needCategoryId\": \"{{categoryId}}\",\n    \"offerCategoryId\": \"{{categoryId}}\",\n    \"timingChip\": \"this_week\",\n    \"areaLabel\": \"Soho\",\n    \"lat\": 40.7234567,\n    \"lng\": -74.0021234,\n    \"detail\": \"Natural light preferred\",\n    \"concept\": \"Golden hour portrait session\",\n    \"type\": \"in_person\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -999,7 +999,7 @@
                     "{{url}}drops"
                   ]
                 },
-                "description": "Creates a public drop (kind=drop, visibility=public). Requires verified + onboarded."
+                "description": "Creates a draft. Publish it separately after completing the required fields."
               },
               "response": []
             },
@@ -1054,7 +1054,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}me/drops?page=1&limit=20",
+                  "raw": "{{url}}me/drops?page=1&limit=20&status=open",
                   "host": [
                     "{{url}}me"
                   ],
@@ -1069,6 +1069,10 @@
                     {
                       "key": "limit",
                       "value": "20"
+                    },
+                    {
+                      "key": "status",
+                      "value": "open"
                     }
                   ]
                 }
@@ -1853,12 +1857,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}app/conversations?page=1&limit=10",
+                  "raw": "{{url}}conversations?page=1&limit=10",
                   "host": [
-                    "{{url}}app"
-                  ],
-                  "path": [
-                    "conversations"
+                    "{{url}}conversations"
                   ],
                   "query": [
                     {
@@ -2209,12 +2210,11 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}app/conversations/messages?page=1&limit=10&objectId=69df98293cd20323132e090b",
+                  "raw": "{{url}}conversations/messages?page=1&limit=10&objectId=69df98293cd20323132e090b",
                   "host": [
-                    "{{url}}app"
+                    "{{url}}conversations"
                   ],
                   "path": [
-                    "conversations",
                     "messages"
                   ],
                   "query": [
@@ -2225,11 +2225,6 @@
                     {
                       "key": "limit",
                       "value": "10"
-                    },
-                    {
-                      "key": "conversationId",
-                      "value": "69e87cdc22c8b1f916271301",
-                      "disabled": true
                     },
                     {
                       "key": "objectId",
@@ -2387,9 +2382,9 @@
                 "method": "PUT",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}app/conversations/{{conversationId}}/action",
+                  "raw": "{{url}}conversations/{{conversationId}}/action",
                   "host": [
-                    "{{url}}app/conversations"
+                    "{{url}}conversations"
                   ],
                   "path": [
                     "{{conversationId}}",
@@ -2424,11 +2419,10 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{url}}app/conversations?chatState=archived&page=1&limit=10",
+                  "raw": "{{url}}conversations?chatState=archived&page=1&limit=10",
                   "host": [
-                    "{{url}}app/conversations"
+                    "{{url}}conversations"
                   ],
-                  "path": [],
                   "query": [
                     {
                       "key": "chatState",
@@ -3282,6 +3276,2125 @@
                 }
               },
               "response": []
+            }
+          ]
+        },
+        {
+          "name": "V2 Backend APIs",
+          "item": [
+            {
+              "name": "Drops lifecycle",
+              "item": [
+                {
+                  "name": "Publish Drop draft",
+                  "request": {
+                    "method": "POST",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}drops/{{dropId}}/publish",
+                      "host": [
+                        "{{url}}drops"
+                      ],
+                      "path": [
+                        "{{dropId}}",
+                        "publish"
+                      ]
+                    },
+                    "description": "Publish a valid draft. If at the two-open-Drop limit, the response includes openDropIds and the Drop remains a draft."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Close Drop",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}drops/{{dropId}}/close",
+                      "host": [
+                        "{{url}}drops"
+                      ],
+                      "path": [
+                        "{{dropId}}",
+                        "close"
+                      ]
+                    },
+                    "description": "Close a draft or open Drop; pending Tap Ins are closed.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Reopen ended Drop",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}drops/{{dropId}}/reopen",
+                      "host": [
+                        "{{url}}drops"
+                      ],
+                      "path": [
+                        "{{dropId}}",
+                        "reopen"
+                      ]
+                    },
+                    "description": "Reopen a closed or expired public Drop for seven days, subject to the open-Drop limit.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Extend Drop",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}drops/{{dropId}}/extend",
+                      "host": [
+                        "{{url}}drops"
+                      ],
+                      "path": [
+                        "{{dropId}}",
+                        "extend"
+                      ]
+                    },
+                    "description": "Extend an open Drop for seven days; reopens an ended Drop.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "My open Drops",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}me/drops?page=1&limit=20&status=open",
+                      "host": [
+                        "{{url}}me"
+                      ],
+                      "path": [
+                        "drops"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        },
+                        {
+                          "key": "status",
+                          "value": "open"
+                        }
+                      ]
+                    },
+                    "description": "Open Drops are the default; status can be draft, closed, expired, or ended."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "My ended Drops",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}me/drops?page=1&limit=20&status=ended",
+                      "host": [
+                        "{{url}}me"
+                      ],
+                      "path": [
+                        "drops"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        },
+                        {
+                          "key": "status",
+                          "value": "ended"
+                        }
+                      ]
+                    },
+                    "description": "Retrieve closed, expired, and past-expiry Drops separately."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Open Drops near coordinates",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}drops/all?page=1&limit=20&lat=40.7128&lng=-74.0060&radius=25&kind=drop",
+                      "host": [
+                        "{{url}}drops"
+                      ],
+                      "path": [
+                        "all"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        },
+                        {
+                          "key": "lat",
+                          "value": "40.7128"
+                        },
+                        {
+                          "key": "lng",
+                          "value": "-74.0060"
+                        },
+                        {
+                          "key": "radius",
+                          "value": "25"
+                        },
+                        {
+                          "key": "kind",
+                          "value": "drop"
+                        }
+                      ]
+                    },
+                    "description": "Geospatial Drop discovery. Radius is in kilometers."
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Connections and network",
+              "item": [
+                {
+                  "name": "Send connection request",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}connection-requests",
+                      "host": [
+                        "{{url}}connection-requests"
+                      ]
+                    },
+                    "description": "Optional note; pair-wide cooldown applies after declining.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"recipientId\": \"{{userId}}\",\n  \"note\": \"Would love to connect about creative work.\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": [],
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "try {",
+                          "    var response = pm.response.json();",
+                          "    var value = response && response.data;",
+                          "    value = value && value._id;",
+                          "    if (value) { pm.collectionVariables.set('connectionRequestId', String(value)); pm.environment.set('connectionRequestId', String(value)); }",
+                          "} catch (error) { console.log(\"Could not capture ${variable}\", error); }"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "Incoming connection requests",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}connection-requests/incoming?page=1&limit=20&status=pending",
+                      "host": [
+                        "{{url}}connection-requests"
+                      ],
+                      "path": [
+                        "incoming"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        },
+                        {
+                          "key": "status",
+                          "value": "pending"
+                        }
+                      ]
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Outgoing connection requests",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}connection-requests/outgoing?page=1&limit=20",
+                      "host": [
+                        "{{url}}connection-requests"
+                      ],
+                      "path": [
+                        "outgoing"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        }
+                      ]
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Accept connection request",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}connection-requests/{{connectionRequestId}}/accept",
+                      "host": [
+                        "{{url}}connection-requests"
+                      ],
+                      "path": [
+                        "{{connectionRequestId}}",
+                        "accept"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Decline connection request",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}connection-requests/{{connectionRequestId}}/decline",
+                      "host": [
+                        "{{url}}connection-requests"
+                      ],
+                      "path": [
+                        "{{connectionRequestId}}",
+                        "decline"
+                      ]
+                    },
+                    "description": "Starts a 30-day cooldown for both users and either request direction.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Withdraw connection request",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}connection-requests/{{connectionRequestId}}/withdraw",
+                      "host": [
+                        "{{url}}connection-requests"
+                      ],
+                      "path": [
+                        "{{connectionRequestId}}",
+                        "withdraw"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Remove connection",
+                  "request": {
+                    "method": "DELETE",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}connections/{{userId}}",
+                      "host": [
+                        "{{url}}connections"
+                      ],
+                      "path": [
+                        "{{userId}}"
+                      ]
+                    },
+                    "description": "Removes the active connection; does not delete existing project chats."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "My network",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}me/network?page=1&limit=20&keyword=",
+                      "host": [
+                        "{{url}}me"
+                      ],
+                      "path": [
+                        "network"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        },
+                        {
+                          "key": "keyword",
+                          "value": ""
+                        }
+                      ]
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "My Collaborations",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}me/collaborations?page=1&limit=20&status=active",
+                      "host": [
+                        "{{url}}me"
+                      ],
+                      "path": [
+                        "collaborations"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        },
+                        {
+                          "key": "status",
+                          "value": "active"
+                        }
+                      ]
+                    }
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Radar and Activity",
+              "item": [
+                {
+                  "name": "Radar home - People and Open Drops",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}radar/all?lat=40.7128&lng=-74.0060&radius=25",
+                      "host": [
+                        "{{url}}radar"
+                      ],
+                      "path": [
+                        "all"
+                      ],
+                      "query": [
+                        {
+                          "key": "lat",
+                          "value": "40.7128"
+                        },
+                        {
+                          "key": "lng",
+                          "value": "-74.0060"
+                        },
+                        {
+                          "key": "radius",
+                          "value": "25"
+                        }
+                      ]
+                    },
+                    "description": "Radar home returns only nearbyPeople and openDrops. Blocked users are excluded."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "For You - nearby",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}for-you?lat=40.7128&lng=-74.0060&radius=25&page=1&limit=20",
+                      "host": [
+                        "{{url}}for-you"
+                      ],
+                      "query": [
+                        {
+                          "key": "lat",
+                          "value": "40.7128"
+                        },
+                        {
+                          "key": "lng",
+                          "value": "-74.0060"
+                        },
+                        {
+                          "key": "radius",
+                          "value": "25"
+                        },
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        }
+                      ]
+                    },
+                    "description": "Returns nearby Circles, Events, and Drops."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "For You - anywhere",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}for-you?anywhere=true&page=1&limit=20",
+                      "host": [
+                        "{{url}}for-you"
+                      ],
+                      "query": [
+                        {
+                          "key": "anywhere",
+                          "value": "true"
+                        },
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        }
+                      ]
+                    },
+                    "description": "Removes nearby location restriction while honoring access rules."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Activity - Received",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}activity/received?page=1&limit=20",
+                      "host": [
+                        "{{url}}activity"
+                      ],
+                      "path": [
+                        "received"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        }
+                      ]
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Activity - Sent",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}activity/sent?page=1&limit=20",
+                      "host": [
+                        "{{url}}activity"
+                      ],
+                      "path": [
+                        "sent"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        }
+                      ]
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Activity - Work",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}activity/work?page=1&limit=20",
+                      "host": [
+                        "{{url}}activity"
+                      ],
+                      "path": [
+                        "work"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        }
+                      ]
+                    }
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Circles",
+              "item": [
+                {
+                  "name": "List public Circles",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}circles?page=1&limit=20&keyword=&city=&lat=40.7128&lng=-74.0060&radius=25",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        },
+                        {
+                          "key": "keyword",
+                          "value": ""
+                        },
+                        {
+                          "key": "city",
+                          "value": ""
+                        },
+                        {
+                          "key": "lat",
+                          "value": "40.7128"
+                        },
+                        {
+                          "key": "lng",
+                          "value": "-74.0060"
+                        },
+                        {
+                          "key": "radius",
+                          "value": "25"
+                        }
+                      ]
+                    },
+                    "description": "Invite-only Circles are excluded from public discovery."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "My Circles",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}me/circles?page=1&limit=20&keyword=",
+                      "host": [
+                        "{{url}}me"
+                      ],
+                      "path": [
+                        "circles"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        },
+                        {
+                          "key": "keyword",
+                          "value": ""
+                        }
+                      ]
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Create Circle",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}circles",
+                      "host": [
+                        "{{url}}circles"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"NYC Photographers\",\n  \"purpose\": \"Share creative projects and meetups.\",\n  \"category\": \"{{categoryId}}\",\n  \"coverImage\": \"https://example.com/circle-cover.jpg\",\n  \"city\": \"New York\",\n  \"privacy\": \"open\",\n  \"lat\": 40.7128,\n  \"lng\": -74.006\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": [],
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "try {",
+                          "    var response = pm.response.json();",
+                          "    var value = response && response.data;",
+                          "    value = value && value._id;",
+                          "    if (value) { pm.collectionVariables.set('circleId', String(value)); pm.environment.set('circleId', String(value)); }",
+                          "} catch (error) { console.log(\"Could not capture ${variable}\", error); }"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "Get Circle",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}circles/{{circleId}}",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "path": [
+                        "{{circleId}}"
+                      ]
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Update Circle",
+                  "request": {
+                    "method": "PATCH",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}circles/{{circleId}}",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "path": [
+                        "{{circleId}}"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"NYC Photo Community\",\n  \"privacy\": \"approval\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Join or request Circle membership",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}circles/{{circleId}}/join",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "path": [
+                        "{{circleId}}",
+                        "join"
+                      ]
+                    },
+                    "description": "Open Circles join immediately; Approval Circles create a pending request.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Approve Circle member",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}circles/{{circleId}}/members/{{userId}}/approve",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "path": [
+                        "{{circleId}}",
+                        "members",
+                        "{{userId}}",
+                        "approve"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Decline Circle member",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}circles/{{circleId}}/members/{{userId}}/decline",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "path": [
+                        "{{circleId}}",
+                        "members",
+                        "{{userId}}",
+                        "decline"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Invite Circle members",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}circles/{{circleId}}/invitations",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "path": [
+                        "{{circleId}}",
+                        "invitations"
+                      ]
+                    },
+                    "description": "Invite selected users to an invite-only Circle.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"userIds\": [\n    \"{{userId}}\"\n  ]\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Respond to Circle invitation",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}circles/{{circleId}}/invitations/respond",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "path": [
+                        "{{circleId}}",
+                        "invitations",
+                        "respond"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"accept\": true\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Leave Circle",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}circles/{{circleId}}/leave",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "path": [
+                        "{{circleId}}",
+                        "leave"
+                      ]
+                    },
+                    "description": "Organizers must transfer responsibility or delete the Circle first.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Transfer organizer",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}circles/{{circleId}}/transfer-organizer",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "path": [
+                        "{{circleId}}",
+                        "transfer-organizer"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"userId\": \"{{userId}}\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Delete Circle",
+                  "request": {
+                    "method": "DELETE",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}circles/{{circleId}}",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "path": [
+                        "{{circleId}}"
+                      ]
+                    },
+                    "description": "Creator-only; linked Events and group chat are closed consistently."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Create Circle poll",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}circles/{{circleId}}/polls",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "path": [
+                        "{{circleId}}",
+                        "polls"
+                      ]
+                    },
+                    "description": "One active poll per Circle.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"question\": \"Where should the photo walk go?\",\n  \"options\": [\n    \"Waterfront\",\n    \"Chinatown\",\n    \"Coney Island\",\n    \"DUMBO\"\n  ],\n  \"closesAt\": \"2026-11-06T17:00:00.000Z\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Vote in Circle poll",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}circles/{{circleId}}/polls/vote",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "path": [
+                        "{{circleId}}",
+                        "polls",
+                        "vote"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"optionIndex\": 0\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Events and suggestions",
+              "item": [
+                {
+                  "name": "List published Events",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}events?page=1&limit=20&lat=40.7128&lng=-74.0060&radius=25",
+                      "host": [
+                        "{{url}}events"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        },
+                        {
+                          "key": "lat",
+                          "value": "40.7128"
+                        },
+                        {
+                          "key": "lng",
+                          "value": "-74.0060"
+                        },
+                        {
+                          "key": "radius",
+                          "value": "25"
+                        }
+                      ]
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Get Event",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}events/{{eventId}}",
+                      "host": [
+                        "{{url}}events"
+                      ],
+                      "path": [
+                        "{{eventId}}"
+                      ]
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Create Event draft",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}events",
+                      "host": [
+                        "{{url}}events"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"circleId\": \"{{circleId}}\",\n  \"name\": \"November Photo Walk\",\n  \"purpose\": \"A neighborhood photo walk.\",\n  \"date\": \"2026-11-15\",\n  \"time\": \"10:00 AM\",\n  \"publicArea\": \"DUMBO\",\n  \"exactMeetingPoint\": \"Under the Manhattan Bridge arch\",\n  \"lat\": 40.7033,\n  \"lng\": -73.9881,\n  \"audience\": \"public\",\n  \"joining\": \"approval\",\n  \"capacity\": 20\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": [],
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "try {",
+                          "    var response = pm.response.json();",
+                          "    var value = response && response.data;",
+                          "    value = value && value._id;",
+                          "    if (value) { pm.collectionVariables.set('eventId', String(value)); pm.environment.set('eventId', String(value)); }",
+                          "} catch (error) { console.log(\"Could not capture ${variable}\", error); }"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "Update Event draft",
+                  "request": {
+                    "method": "PATCH",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}events/{{eventId}}",
+                      "host": [
+                        "{{url}}events"
+                      ],
+                      "path": [
+                        "{{eventId}}"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"purpose\": \"Updated event details.\",\n  \"capacity\": 25\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Publish Event draft",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}events/{{eventId}}/publish",
+                      "host": [
+                        "{{url}}events"
+                      ],
+                      "path": [
+                        "{{eventId}}",
+                        "publish"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Cancel Event",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}events/{{eventId}}/cancel",
+                      "host": [
+                        "{{url}}events"
+                      ],
+                      "path": [
+                        "{{eventId}}",
+                        "cancel"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Submit Event suggestion",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}circles/{{circleId}}/event-suggestions",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "path": [
+                        "{{circleId}}",
+                        "event-suggestions"
+                      ]
+                    },
+                    "description": "Suggestions require organizer approval before publication.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"name\": \"Community Photo Walk\",\n  \"purpose\": \"Member-suggested event.\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": [],
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "try {",
+                          "    var response = pm.response.json();",
+                          "    var value = response && response.data;",
+                          "    value = value && value._id;",
+                          "    if (value) { pm.collectionVariables.set('eventId', String(value)); pm.environment.set('eventId', String(value)); }",
+                          "} catch (error) { console.log(\"Could not capture ${variable}\", error); }"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "List Event suggestions",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}circles/{{circleId}}/event-suggestions?page=1&limit=20",
+                      "host": [
+                        "{{url}}circles"
+                      ],
+                      "path": [
+                        "{{circleId}}",
+                        "event-suggestions"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        }
+                      ]
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Approve Event suggestion",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}events/{{eventId}}/suggestion/approve",
+                      "host": [
+                        "{{url}}events"
+                      ],
+                      "path": [
+                        "{{eventId}}",
+                        "suggestion",
+                        "approve"
+                      ]
+                    },
+                    "description": "Approval creates an editable Event draft.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Decline Event suggestion",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}events/{{eventId}}/suggestion/decline",
+                      "host": [
+                        "{{url}}events"
+                      ],
+                      "path": [
+                        "{{eventId}}",
+                        "suggestion",
+                        "decline"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Delete Event suggestion",
+                  "request": {
+                    "method": "DELETE",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}events/{{eventId}}/suggestion",
+                      "host": [
+                        "{{url}}events"
+                      ],
+                      "path": [
+                        "{{eventId}}",
+                        "suggestion"
+                      ]
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "RSVP to Event",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}events/{{eventId}}/rsvp",
+                      "host": [
+                        "{{url}}events"
+                      ],
+                      "path": [
+                        "{{eventId}}",
+                        "rsvp"
+                      ]
+                    },
+                    "description": "Attendee visibility does not grant personal messaging access.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"showToParticipants\": true\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Cancel Event RSVP",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}events/{{eventId}}/rsvp/cancel",
+                      "host": [
+                        "{{url}}events"
+                      ],
+                      "path": [
+                        "{{eventId}}",
+                        "rsvp",
+                        "cancel"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Approve Event RSVP",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}events/{{eventId}}/rsvp/{{userId}}/approve",
+                      "host": [
+                        "{{url}}events"
+                      ],
+                      "path": [
+                        "{{eventId}}",
+                        "rsvp",
+                        "{{userId}}",
+                        "approve"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Decline Event RSVP",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}events/{{eventId}}/rsvp/{{userId}}/decline",
+                      "host": [
+                        "{{url}}events"
+                      ],
+                      "path": [
+                        "{{eventId}}",
+                        "rsvp",
+                        "{{userId}}",
+                        "decline"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Collaboration disputes",
+              "item": [
+                {
+                  "name": "Respond to dispute",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}disputes/{{disputeId}}/respond",
+                      "host": [
+                        "{{url}}disputes"
+                      ],
+                      "path": [
+                        "{{disputeId}}",
+                        "respond"
+                      ]
+                    },
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"response\": \"I can complete the agreed work this week.\",\n  \"responseEvidence\": []\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Confirm mutual dispute resolution",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}disputes/{{disputeId}}/mutual-resolved",
+                      "host": [
+                        "{{url}}disputes"
+                      ],
+                      "path": [
+                        "{{disputeId}}",
+                        "mutual-resolved"
+                      ]
+                    },
+                    "description": "Both participants must confirm resolution.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Request TradeDrop review",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}disputes/{{disputeId}}/request-review",
+                      "host": [
+                        "{{url}}disputes"
+                      ],
+                      "path": [
+                        "{{disputeId}}",
+                        "request-review"
+                      ]
+                    },
+                    "description": "Either participant may request platform review.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Withdraw dispute",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}disputes/{{disputeId}}/withdraw",
+                      "host": [
+                        "{{url}}disputes"
+                      ],
+                      "path": [
+                        "{{disputeId}}",
+                        "withdraw"
+                      ]
+                    },
+                    "description": "Only the dispute opener may withdraw.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Resolve dispute (admin)",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}disputes/{{disputeId}}/resolve",
+                      "host": [
+                        "{{url}}disputes"
+                      ],
+                      "path": [
+                        "{{disputeId}}",
+                        "resolve"
+                      ]
+                    },
+                    "description": "Admin-only decision.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"outcome\": \"finish_agreed_work\",\n  \"resolutionNote\": \"Resolution details.\",\n  \"internalNote\": \"\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Reports and moderation",
+              "item": [
+                {
+                  "name": "Submit user report",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}reports",
+                      "host": [
+                        "{{url}}reports"
+                      ]
+                    },
+                    "description": "Reasons: harassment, spam, inappropriate_content, impersonation, scams_fraud, other.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"reportedUserId\": \"{{userId}}\",\n  \"reason\": \"harassment\",\n  \"description\": \"Optional context for the moderation team.\",\n  \"resourceType\": \"user\",\n  \"blockUser\": false\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": [],
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "try {",
+                          "    var response = pm.response.json();",
+                          "    var value = response && response.data;",
+                          "    value = value && value._id;",
+                          "    if (value) { pm.collectionVariables.set('reportId', String(value)); pm.environment.set('reportId', String(value)); }",
+                          "} catch (error) { console.log(\"Could not capture ${variable}\", error); }"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "My reports",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}me/reports?page=1&limit=20",
+                      "host": [
+                        "{{url}}me"
+                      ],
+                      "path": [
+                        "reports"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        }
+                      ]
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Admin report queue",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}admin/reports?page=1&limit=20&status=pending",
+                      "host": [
+                        "{{url}}admin"
+                      ],
+                      "path": [
+                        "reports"
+                      ],
+                      "query": [
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        },
+                        {
+                          "key": "status",
+                          "value": "pending"
+                        }
+                      ]
+                    },
+                    "description": "Staff-only report moderation.",
+                    "auth": {
+                      "type": "bearer",
+                      "bearer": [
+                        {
+                          "key": "token",
+                          "value": "{{adminToken}}",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Moderate report (admin)",
+                  "request": {
+                    "method": "PATCH",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}admin/reports/{{reportId}}",
+                      "host": [
+                        "{{url}}admin"
+                      ],
+                      "path": [
+                        "reports",
+                        "{{reportId}}"
+                      ]
+                    },
+                    "description": "Staff-only. Terminal statuses notify the reporter.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"status\": \"under_review\",\n  \"note\": \"Reviewing the report.\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "auth": {
+                      "type": "bearer",
+                      "bearer": [
+                        {
+                          "key": "token",
+                          "value": "{{adminToken}}",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Messaging",
+              "item": [
+                {
+                  "name": "Fetch messages",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "{{url}}conversations/messages?conversationId={{conversationId}}&page=1&limit=20",
+                      "host": [
+                        "{{url}}conversations"
+                      ],
+                      "path": [
+                        "messages"
+                      ],
+                      "query": [
+                        {
+                          "key": "conversationId",
+                          "value": "{{conversationId}}"
+                        },
+                        {
+                          "key": "page",
+                          "value": "1"
+                        },
+                        {
+                          "key": "limit",
+                          "value": "20"
+                        }
+                      ]
+                    },
+                    "description": "Conversation participant only; fetching marks received messages read."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Send Circle or project message",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}conversations/message",
+                      "host": [
+                        "{{url}}conversations"
+                      ],
+                      "path": [
+                        "message"
+                      ]
+                    },
+                    "description": "Circle chats require active membership. Project chats require Collaboration participation.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"conversationType\": \"group\",\n  \"conversationId\": \"{{conversationId}}\",\n  \"messageType\": \"text\",\n  \"messageContent\": \"Hello Circle!\",\n  \"replyTo\": \"\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Send personal message",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": {
+                      "raw": "{{url}}conversations/message",
+                      "host": [
+                        "{{url}}conversations"
+                      ],
+                      "path": [
+                        "message"
+                      ]
+                    },
+                    "description": "Personal messaging requires an active connection.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"conversationType\": \"direct\",\n  \"participantId\": \"{{userId}}\",\n  \"messageType\": \"text\",\n  \"messageContent\": \"Hello!\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "response": []
+                }
+              ]
             }
           ]
         }
@@ -5792,6 +7905,30 @@
     {
       "key": "conversationId",
       "value": ""
+    },
+    {
+      "key": "circleId",
+      "value": ""
+    },
+    {
+      "key": "eventId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "connectionRequestId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "reportId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
     }
   ]
 }

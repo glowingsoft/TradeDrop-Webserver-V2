@@ -1,7 +1,5 @@
 const { User } = require("@UsersModel");
-const authRepo = require("../auth/authRepository");
-const catalogRepo = require("../catalog/mongoCatalogRepository");
-const { DEFAULT_RADAR_RADIUS_KM, CHIP_GROUPS } = require("./radarConstants");
+const { DEFAULT_RADAR_RADIUS_KM } = require("./radarConstants");
 const { default: mongoose } = require("mongoose");
 const { parsePaginationParams, generateMeta } = require("@helperUtils/responseUtil");
 const Category = require("@models/Category");
@@ -9,7 +7,11 @@ const { lookupUserCrafts, lookupUserRating } = require("@helperUtils/dbUtils/que
 const Connection = require("@models/Connection");
 const BlockedUser = require("@models/BlockedUser");
 const { getAllDrops } = require("../drops/service");
-const { dropExpiredFilter } = require("../_shared/tradeShared");
+const { dropExpiredFilter, publicDropFilter, toDropView } = require("../_shared/tradeShared");
+const { getConnectionStatuses } = require("@helperUtils/connectionUtil");
+const { getUserDetails } = require("../_shared/userDetails");
+const { Drop } = require("@models/Drop");
+const { getFullImageUrl } = require("@helperUtils/imageHelper");
 
 function AppError(translationKey, statusCode = 400) {
   const err = new Error(translationKey);
@@ -40,117 +42,27 @@ function parseOptionalNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-async function userChipGroups(user) {
-  const groups = new Set();
-  for (const craftId of user.crafts || []) {
-    const cat = await catalogRepo.findCategoryById(craftId);
-    if (cat?.chipGroup) groups.add(cat.chipGroup);
-  }
-  return groups;
+function parseOptionalBoolean(value, translationKey) {
+  if (value === undefined || value === null || value === "") return null;
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  throw AppError(translationKey, 400);
 }
-
-async function matchesCategory(user, category) {
-  const chip = String(category || "all")
-    .toLowerCase()
-    .trim();
-  if (!chip || chip === "all") return true;
-  if (!CHIP_GROUPS.has(chip)) return false;
-  return (await userChipGroups(user)).has(chip);
-}
-
-function isRadarEligible(user) {
-  if (!user || user.deletedAt) return false;
-  const status = user.accountState?.status || "active";
-  if (status === "banned" || status === "suspended" || status === "restricted") {
-    return false;
-  }
-  if (!user.onboarding) return false;
-  if (user.radarVisible === false) return false;
-  if (user.openToTrade === false) return false;
-  if (user.hideFromSearch) return false;
-
-  return true;
-}
-
-function toPin(user) {
-  return {
-    _id: user._id,
-    handle: user.handle || "",
-    name: user.name || "",
-    profileIcon: user.profileIcon || "",
-    bio: user.bio || "",
-    areaLabel: user.areaLabel || "",
-    lat: roundCoord(user.lat),
-    lng: roundCoord(user.lng),
-    crafts: user.crafts || [],
-    needText: user.needText || "",
-    offerText: user.offerText || "",
-    openToTrade: user.openToTrade !== false,
-    verified: !!user.verified,
-  };
-}
-
-/**
- * GET /radar — public pins. Optional viewerId excludes self.
- * Block filter deferred to slice 9.
- */
-// async function listRadar(query = {}, viewerId = null) {
-//   const lat = parseOptionalNumber(query.lat);
-//   const lng = parseOptionalNumber(query.lng);
-//   const radius = parseOptionalNumber(query.radius) ?? DEFAULT_RADAR_RADIUS_KM;
-//   const area = query.area ? String(query.area).trim() : "";
-//   const category = String(query.category || "all")
-//     .toLowerCase()
-//     .trim();
-
-//   if (category && !CHIP_GROUPS.has(category)) {
-//     throw AppError("invalid_category", 400);
-//   }
-
-//   const hasGeo = lat !== null && lng !== null;
-//   if (query.radius !== undefined && query.radius !== null && query.radius !== "") {
-//     if (radius === null || radius <= 0) throw AppError("invalid_radius", 400);
-//   }
-
-//   let users = (await authRepo.listAll()).filter(isRadarEligible);
-
-//   if (viewerId) {
-//     users = users.filter((u) => String(u._id) !== String(viewerId));
-//   }
-
-//   if (category && category !== "all") {
-//     const next = [];
-//     for (const u of users) {
-//       if (await matchesCategory(u, category)) next.push(u);
-//     }
-//     users = next;
-//   }
-
-//   if (area) {
-//     users = users.filter((u) => String(u.areaLabel || "").toLowerCase() === area.toLowerCase());
-//   }
-
-//   if (hasGeo) {
-//     users = users.filter((u) => {
-//       if (u.lat === null || u.lat === undefined || u.lng === null || u.lng === undefined) {
-//         // No stored geo: fall back to area match if area also provided; else exclude from radius search
-//         if (area) {
-//           return String(u.areaLabel || "").toLowerCase() === area.toLowerCase();
-//         }
-//         return false;
-//       }
-//       return haversineKm(lat, lng, Number(u.lat), Number(u.lng)) <= radius;
-//     });
-//   } else if (!area) {
-//     // No usable geo query and no area — return all eligible (seed-friendly guest list)
-//   }
-
-//   return users.map(toPin);
-// }
 
 async function listRadar({ req, filter = {}, recent = false }) {
   const { page, limit } = parsePaginationParams(req);
-  const { radius, area, category, lat, lng } = req?.query || {};
+  const {
+    radius,
+    area,
+    category,
+    categories: requestedCategoriesParam,
+    lat,
+    lng,
+    keyword,
+    openToWork,
+    connectionsOnly,
+    hasAnOpenDrop,
+  } = req?.query || {};
 
   const viewer = req.user;
   if (!viewer?._id) {
@@ -158,7 +70,8 @@ async function listRadar({ req, filter = {}, recent = false }) {
   }
   const parsedRadius = parseOptionalNumber(radius) ?? DEFAULT_RADAR_RADIUS_KM;
   const areaLabel = area ? String(area).trim() : "";
-  const categoryValues = (Array.isArray(category) ? category : [category])
+  const requestedCategories = requestedCategoriesParam ?? category;
+  const categoryValues = (Array.isArray(requestedCategories) ? requestedCategories : [requestedCategories])
     .flatMap((value) => String(value || "all").split(","))
     .map((value) =>
       value
@@ -168,9 +81,8 @@ async function listRadar({ req, filter = {}, recent = false }) {
     )
     .filter(Boolean);
   const selectedCategories = categoryValues.filter((value) => value !== "all");
-  const chipCategories = selectedCategories.filter((value) => CHIP_GROUPS.has(value));
   const categoryIds = selectedCategories.filter((value) => mongoose.Types.ObjectId.isValid(value));
-  if (selectedCategories.some((value) => !CHIP_GROUPS.has(value) && !mongoose.Types.ObjectId.isValid(value))) {
+  if (selectedCategories.some((value) => !mongoose.Types.ObjectId.isValid(value))) {
     throw AppError("invalid_category", 400);
   }
   if (radius !== undefined && radius !== null && radius !== "") {
@@ -178,11 +90,24 @@ async function listRadar({ req, filter = {}, recent = false }) {
       throw AppError("invalid_radius", 400);
     }
   }
+  const hasLatitude = lat !== undefined && lat !== null && lat !== "";
+  const hasLongitude = lng !== undefined && lng !== null && lng !== "";
+  if (hasLatitude !== hasLongitude) throw AppError("location_invalid", 400);
   let viewerLng = null;
   let viewerLat = null;
-  if (lat !== undefined && lat !== null && lat !== "" && lng !== undefined && lng !== null && lng !== "") {
+  if (hasLatitude && hasLongitude) {
     viewerLat = parseOptionalNumber(lat);
     viewerLng = parseOptionalNumber(lng);
+    if (
+      viewerLat === null ||
+      viewerLng === null ||
+      viewerLat < -90 ||
+      viewerLat > 90 ||
+      viewerLng < -180 ||
+      viewerLng > 180
+    ) {
+      throw AppError("location_invalid", 400);
+    }
   }
   // if (Array.isArray(viewer.location) && viewer.location.length >= 2) {
   //   viewerLng = Number(viewer.location[0]);
@@ -197,21 +122,66 @@ async function listRadar({ req, filter = {}, recent = false }) {
     "accountState.userType": "user",
     "accountState.status": "active",
     "verificationStatus.email": "verified",
+    onboarding: true,
+    radarVisible: { $ne: false },
+    openToTrade: { $ne: false },
+    hideFromSearch: { $ne: true },
     _id: { ...(filter._id || {}), $ne: new mongoose.Types.ObjectId(viewer._id) },
   };
+  const openToWorkValue = parseOptionalBoolean(openToWork, "invalid_open_to_work");
+  const connectionsOnlyValue = parseOptionalBoolean(connectionsOnly, "invalid_connections_only");
+  const hasAnOpenDropValue = parseOptionalBoolean(hasAnOpenDrop, "invalid_open_drop_filter");
+  match.openToTrade = openToWorkValue === null ? { $ne: false } : openToWorkValue ? { $ne: false } : false;
+  if (keyword?.trim()) {
+    const expression = { $regex: escapeRegex(keyword.trim()), $options: "i" };
+    match.$or = [
+      { name: expression },
+      { handle: expression },
+      { bio: expression },
+      { specialty: expression },
+      { areaLabel: expression },
+    ];
+  }
+  const blocks = await BlockedUser.find({
+    $or: [{ blockedBy: viewer._id }, { blockedUser: viewer._id }],
+  })
+    .select("blockedBy blockedUser")
+    .lean();
+  const blockedIds = blocks.map((block) =>
+    String(block.blockedBy) === String(viewer._id) ? block.blockedUser : block.blockedBy,
+  );
+  match._id.$nin = blockedIds;
+  if (connectionsOnlyValue) {
+    const connections = await Connection.find({
+      status: "active",
+      $or: [{ userA: viewer._id }, { userB: viewer._id }],
+    })
+      .select("userA userB")
+      .lean();
+    const connectedIds = connections.map((connection) =>
+      String(connection.userA) === String(viewer._id) ? connection.userB : connection.userA,
+    );
+    match._id.$in = connectedIds;
+  }
+  if (hasAnOpenDropValue !== null) {
+    const ownersWithOpenDrops = await Drop.distinct("ownerId", {
+      status: "open",
+      deletedAt: null,
+      $or: [{ expiresAt: null }, { expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }],
+    });
+    if (hasAnOpenDropValue) {
+      match._id.$in = ownersWithOpenDrops;
+    } else {
+      match._id.$nin = [...match._id.$nin, ...ownersWithOpenDrops];
+    }
+  }
   if (areaLabel) {
     match.areaLabel = { $regex: `^${escapeRegex(areaLabel)}$`, $options: "i" };
   }
-  /* Category selections may be chip groups or one/more category IDs; crafts stores category IDs. */
+  /* Category selections are category IDs stored in the user's crafts array. */
   if (selectedCategories.length) {
-    const chipCategoryDocs = chipCategories.length
-      ? await Category.find({ chipGroup: { $in: chipCategories } }, { _id: 1 }).lean()
-      : [];
     match.crafts = {
-      $in: [
-        ...categoryIds.map((id) => new mongoose.Types.ObjectId(id)),
-        ...chipCategoryDocs.map((categoryDoc) => categoryDoc._id),
-      ],
+      $in: categoryIds.map((id) => new mongoose.Types.ObjectId(id)),
     };
   }
   const pipeline = [];
@@ -244,12 +214,17 @@ async function listRadar({ req, filter = {}, recent = false }) {
             handle: 1,
             profileIcon: { $concat: [process.env.S3_BASE_URL || "", "$profileIcon"] },
             areaLabel: 1,
+            bio: 1,
+            category: 1,
+            specialty: 1,
+            openToTrade: 1,
             crafts: 1,
             lat: 1,
             lng: 1,
             distanceMeters: 1,
             averageRating: 1,
             reviewCount: 1,
+            portfolio: 1,
           },
         },
       ],
@@ -258,11 +233,47 @@ async function listRadar({ req, filter = {}, recent = false }) {
   });
   const [result] = await User.aggregate(pipeline);
   const total = result?.total?.[0]?.count || 0;
+  const people = result?.users || [];
+  const userIds = people.map((user) => user._id);
+  const [relationships, dropIds, endedDropOwners] = await Promise.all([
+    getConnectionStatuses(viewer._id, userIds),
+    Drop.find({
+      ownerId: { $in: userIds },
+      status: "open",
+      deletedAt: null,
+      $or: [{ expiresAt: null }, { expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }],
+    })
+      .select("_id ownerId")
+      .lean(),
+    Drop.distinct("ownerId", {
+      ownerId: { $in: userIds },
+      deletedAt: null,
+      $or: [{ status: { $in: ["closed", "expired"] } }, { status: "open", expiresAt: { $ne: null, $lte: new Date() } }],
+    }),
+  ]);
+  const dropsByOwner = new Map();
+  for (const drop of dropIds) {
+    const key = String(drop.ownerId);
+    if (!dropsByOwner.has(key)) dropsByOwner.set(key, []);
+    dropsByOwner.get(key).push(String(drop._id));
+  }
+  const endedDropOwnerIds = new Set(endedDropOwners.map((ownerId) => String(ownerId)));
+  const data = people.map((person) => {
+    const relationship = relationships.get(String(person._id));
+    return {
+      ...person,
+      connectionStatus: relationship.connectionStatus,
+      canSendConnectionRequest: relationship.canSendConnectionRequest,
+      openDropIds: dropsByOwner.get(String(person._id)) || [],
+      isNew: !endedDropOwnerIds.has(String(person._id)),
+      portfolio: person.portfolio?.map((p) => ({ ...p, imageUrl: getFullImageUrl(p.imageUrl) })) || [],
+    };
+  });
   const categories = await Category.find({}, { _id: 1, name: 1 }).lean();
   const meta = generateMeta(page, limit, total);
   meta.categories = [{ _id: null, name: "All" }, ...categories];
   return {
-    data: result?.users || [],
+    data,
     meta,
   };
 }
@@ -318,50 +329,127 @@ async function listConnectionsTab(viewerId, excluded) {
   };
 }
 
-/**
- * GET /radar/all — the four radar tabs in one call. Each tab is isolated, so one failing
- * query returns { data: [], error } for that tab instead of failing the whole response.
- */
+function radarTabQueries(req, excluded) {
+  const sourceQuery = req.query || {};
+  const pickQuery = (keys) =>
+    Object.fromEntries(keys.filter((key) => sourceQuery[key] !== undefined).map((key) => [key, sourceQuery[key]]));
+  const peopleQuery = {
+    ...pickQuery([
+      "lat",
+      "lng",
+      "radius",
+      "categories",
+      "category",
+      "area",
+      "keyword",
+      "openToWork",
+      "connectionsOnly",
+      "hasAnOpenDrop",
+    ]),
+    page: 1,
+    limit: RADAR_TAB_LIMIT,
+  };
+  const dropsQuery = {
+    ...pickQuery(["lat", "lng", "radius", "categories", "type", "date", "keyword", "tag"]),
+    page: 1,
+    limit: RADAR_TAB_LIMIT,
+    notme: "true",
+  };
+  const peopleLat = parseOptionalNumber(peopleQuery.lat);
+  const peopleLng = parseOptionalNumber(peopleQuery.lng);
+  const hasPeopleGeo = Number.isFinite(peopleLat) && Number.isFinite(peopleLng);
+  const peopleRequest = {
+    ...req,
+    query: hasPeopleGeo ? peopleQuery : { ...peopleQuery, lat: undefined, lng: undefined },
+  };
+  const dropsRequest = { ...req, query: dropsQuery };
+
+  return {
+    people: {
+      req: peopleRequest,
+      filter: { deletedAt: null, _id: { $nin: excluded } },
+      recent: !hasPeopleGeo,
+    },
+    drops: {
+      req: dropsRequest,
+      extraConditions: [{ status: "open" }, dropExpiredFilter(), { ownerId: { $nin: excluded } }],
+    },
+  };
+}
+
+async function listRadarPeople(req) {
+  const viewer = req.user;
+  if (!viewer?._id) throw AppError("unauthorized", 401);
+
+  const excluded = await excludedUserIds(viewer._id);
+  const queries = radarTabQueries(req, excluded);
+  const result = await listRadar(queries.people);
+  return {
+    data: result.data,
+    meta: result.meta,
+  };
+}
+
+async function getRadarPerson(req) {
+  const viewerId = req.user?._id;
+  const user = await getUserDetails(viewerId, req.params.id);
+  const { page, limit } = parsePaginationParams(req);
+  const dropQuery = { ...publicDropFilter(), ownerId: user._id };
+  const drops = await Drop.find(dropQuery)
+    .sort({ createdAt: -1, _id: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .populate("timingChip", "value label")
+    .lean();
+  return {
+    ...user,
+    connectionId: user.connectionId || user.requestId,
+    openDrops: drops.map((drop) => toDropView(drop, viewerId)),
+  };
+}
+
+async function listRadarDrops(req) {
+  const viewer = req.user;
+  if (!viewer?._id) throw AppError("unauthorized", 401);
+
+  const excluded = await excludedUserIds(viewer._id);
+  const queries = radarTabQueries(req, excluded);
+  const result = await getAllDrops(queries.drops.req, { extraConditions: queries.drops.extraConditions });
+  return {
+    data: result.data,
+    meta: result.meta,
+  };
+}
+
 async function listRadarTabs(req) {
   const viewer = req.user;
   if (!viewer?._id) throw AppError("unauthorized", 401);
 
   const excluded = await excludedUserIds(viewer._id);
-  const baseQuery = { ...(req.query || {}), page: 1, limit: RADAR_TAB_LIMIT };
-  const peopleReq = (query) => ({ ...req, query });
-  const peopleFilter = { deletedAt: null, _id: { $nin: excluded } };
-
-  const { lat, lng, ...queryWithoutGeo } = baseQuery;
-  const hasGeo = Number.isFinite(parseOptionalNumber(lat)) && Number.isFinite(parseOptionalNumber(lng));
-
+  const queries = radarTabQueries(req, excluded);
   const tasks = {
-    nearbyPeople: async () => {
-      if (!hasGeo) throw AppError("location_required", 400);
-      return listRadar({ req: peopleReq(baseQuery), filter: peopleFilter });
-    },
-    allPeople: () => listRadar({ req: peopleReq(queryWithoutGeo), filter: peopleFilter, recent: true }),
-    drops: () =>
-      getAllDrops(peopleReq({ ...baseQuery, notme: "true" }), {
-        extraConditions: [{ status: "open" }, dropExpiredFilter(), { ownerId: { $nin: excluded } }],
-      }),
-    connections: () => listConnectionsTab(viewer._id, excluded),
+    nearbyPeople: () => listRadar(queries.people),
+    openDrops: () => getAllDrops(queries.drops.req, { extraConditions: queries.drops.extraConditions }),
   };
-
   const names = Object.keys(tasks);
   const settled = await Promise.allSettled(names.map((name) => tasks[name]()));
-  return Object.fromEntries(
-    settled.map((result, i) => [
-      names[i],
-      result.status === "fulfilled"
-        ? result.value?.data
-        : { data: [], error: result.reason?.translationKey || "internal_server" },
-    ]),
+
+  const result = Object.fromEntries(
+    settled.map((item, i) => [names[i], item.status === "fulfilled" ? item.value?.data || [] : []]),
   );
+
+  result.categories = settled[0].status === "fulfilled" ? settled[0].value?.meta?.categories || [] : [];
+
+  return result;
 }
 
 module.exports = {
   listRadar,
+  listRadarPeople,
+  getRadarPerson,
+  listRadarDrops,
   listRadarTabs,
+  excludedUserIds,
   roundCoord,
   haversineKm,
   DEFAULT_RADAR_RADIUS_KM,

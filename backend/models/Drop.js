@@ -7,18 +7,58 @@ const dropSchema = new mongoose.Schema(
     kind: { type: String, enum: ["drop", "proposal", "collaboration"], default: "drop", required: true },
     visibility: { type: String, enum: ["public", "direct"], default: "public", required: true },
     // Set for direct drops only
-    // NEW: Drop title and description
-    concept: { type: String, required: true, trim: true },
-    detail: { type: String, default: "", trim: true },
+    title: {
+      type: String,
+      required: function () {
+        return this.status !== "draft";
+      },
+      trim: true,
+      default: "",
+    },
+    idea: { type: String, default: "", trim: true },
     targetUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
-    needText: { type: String, required: true },
-    offerText: { type: String, required: true },
-    needCategoryId: { type: mongoose.Schema.Types.ObjectId, ref: "Category", required: true },
-    offerCategoryId: { type: mongoose.Schema.Types.ObjectId, ref: "Category", required: true },
-    timingChip: { type: mongoose.Schema.Types.ObjectId, ref: "TimingChip", required: true },
+    needText: {
+      type: String,
+      required: function () {
+        return this.status !== "draft";
+      },
+      default: "",
+    },
+    offerText: {
+      type: String,
+      required: function () {
+        return this.status !== "draft";
+      },
+      default: "",
+    },
+    needCategoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      required: function () {
+        return this.status !== "draft";
+      },
+    },
+    offerCategoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      required: function () {
+        return this.status !== "draft";
+      },
+    },
+    timingChip: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "TimingChip",
+      default: null,
+    },
     date: { type: Date, default: null },
-    startTime: { type: Date, default: null },
-    endTime: { type: Date, default: null },
+    // specific: date + startTime/endTime; range: dateFrom/dateTo; flexible: no dates
+    timingType: { type: String, enum: ["specific", "range", "flexible"], default: null },
+    dateFrom: { type: Date, default: null },
+    dateTo: { type: Date, default: null },
+    // Optional, applies to every timingType
+    tapInDeadline: { type: Date, default: null },
+    startTime: { type: String, default: null }, // "HH:mm"
+    endTime: { type: String, default: null }, // "HH:mm"
     expiresAt: { type: Date, default: null },
 
     // Location
@@ -27,11 +67,20 @@ const dropSchema = new mongoose.Schema(
       enum: ["neighborhood", "specific", "remote"],
       default: "neighborhood",
     },
-    areaLabel: { type: String, required: true },
+    type: { type: String, enum: ["in_person", "remote"], default: "in_person" },
+    areaLabel: {
+      type: String,
+      required: function () {
+        return this.status !== "draft" && this.type !== "remote";
+      },
+      default: "",
+    },
     lat: { type: Number, default: null },
     lng: { type: Number, default: null },
     location: { type: [Number], default: undefined },
-    status: { type: String, enum: ["open", "closed"], default: "open" },
+    status: { type: String, enum: ["draft", "open", "closed", "expired"], default: "draft" },
+    publishedAt: { type: Date, default: null },
+    closedAt: { type: Date, default: null },
     deletedAt: { type: Date, default: null },
     referenceImages: {
       type: [String],

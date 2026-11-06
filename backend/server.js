@@ -92,6 +92,12 @@ app.get("/health", (req, res) => {
   });
 });
 
+const swaggerUi = require("swagger-ui-express");
+const tradedropOpenApi = require("./docs/tradedropOpenApi");
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(tradedropOpenApi));
+app.get("/api/openapi.json", (req, res) => {
+  res.status(200).json(tradedropOpenApi);
+});
 /**
  * =======================================================
  * Security

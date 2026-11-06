@@ -12,6 +12,12 @@ module.exports = {
     service.resolveDispute(req.params.id, actorOf(req), req.body || {}),
   ),
   mutualResolveDispute: one(200, "dispute_mutual_resolved", (req) =>
-    service.mutualResolveDispute(req.params.id, actorOf(req), req.body || {}),
+    service.confirmMutualResolution(req.params.id, req.user._id),
+  ),
+  requestReview: one(200, "dispute_review_requested", (req) =>
+    service.requestReview(req.params.id, req.user._id),
+  ),
+  withdrawDispute: one(200, "dispute_withdrawn", (req) =>
+    service.withdrawDispute(req.params.id, req.user._id),
   ),
 };

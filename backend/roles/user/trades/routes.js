@@ -5,6 +5,7 @@ const { gated, adminOnly, authenticate } = require("../_shared/authGates");
 const router = express.Router();
 
 router.get("/me/trades", ...gated, c.listMyTrades);
+router.get("/me/collaborations", ...gated, c.listMyCollaborations);
 router.get("/trades", authenticate, c.listTrades);
 router.get("/trades/:id", authenticate, c.getTrade);
 router.post("/trades/:id/done", ...gated, c.markDone);

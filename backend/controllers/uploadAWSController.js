@@ -1,5 +1,5 @@
 const path = require("path");
-const { S3Client, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+const { S3Client, DeleteObjectCommand, ListObjectsV2Command } = require("@aws-sdk/client-s3");
 const { Upload } = require("@aws-sdk/lib-storage");
 const multer = require("multer");
 const { sendResponse } = require("../helperUtils/responseUtil");
@@ -12,7 +12,6 @@ let pLimit;
 (async () => {
   pLimit = (await import("p-limit")).default;
 })();
-
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB in bytes
 
@@ -69,8 +68,7 @@ const uploadFiles = (req, res) => {
       const uploadedFiles = await uploadFilesToS3(req.files);
 
       // If only one file is uploaded, return it as an object; otherwise, return an array
-      const response =
-        uploadedFiles.length === 1 ? uploadedFiles[0] : uploadedFiles;
+      const response = uploadedFiles.length === 1 ? uploadedFiles[0] : uploadedFiles;
 
       return sendResponse({
         res,
@@ -107,7 +105,7 @@ const uploadFilesToS3 = async (files) => {
   const limit = pLimit(5);
 
   // Create a list of upload promises with concurrency control
-  const uploadPromises = files.map((file, index) => 
+  const uploadPromises = files.map((file, index) =>
     limit(async () => {
       // console.log(`Starting upload for file ${index + 1}: ${file.originalname}`);
 
@@ -145,7 +143,7 @@ const uploadFilesToS3 = async (files) => {
         fileExtension: path.extname(params.Key),
         // fileSize: (compressedBuffer.length / 1024).toFixed(2) + ' KB', // Uncomment if needed
       };
-    })
+    }),
   );
 
   // Wait for all the uploads to complete
@@ -276,8 +274,9 @@ const deleteFiles = async (req, res) => {
     });
   }
 };
+
 module.exports = {
   uploadFiles,
   deleteFiles,
-  uploadFilesToS3
+  uploadFilesToS3,
 };

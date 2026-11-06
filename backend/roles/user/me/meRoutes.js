@@ -1,11 +1,13 @@
 const express = require("express");
 const { authenticate } = require("../auth/tfAuthMiddleware");
-const { gatedProbe } = require("../auth/authController");
+const { requireVerifiedOnboarded } = require("../auth/tfAuthMiddleware");
+const { sendResponse } = require("../../../helperUtils/responseUtil");
 const {
   getMe,
   patchMe,
   postCraft,
   postPortfolio,
+  patchPortfolio,
   deletePortfolio,
   patchPrivacy,
   deleteMe,
@@ -25,11 +27,19 @@ router.patch("/announcements/:id/read", readAnnouncement);
 router.patch("/", patchMe);
 router.post("/crafts", postCraft);
 router.post("/portfolio", postPortfolio);
+router.patch("/portfolio/:id", patchPortfolio);
 router.delete("/portfolio/:id", deletePortfolio);
 router.patch("/privacy", patchPrivacy);
 router.delete("/", deleteMe);
 
 /** Gate: verified email + onboardingComplete (checked in service for this probe) */
-router.post("/gated-action", gatedProbe);
+router.post("/gated-action", requireVerifiedOnboarded, (req, res) => {
+  return sendResponse({
+    res,
+    statusCode: 200,
+    translationKey: "gate_passed",
+    data: req.tfUser,
+  });
+});
 
 module.exports = router;

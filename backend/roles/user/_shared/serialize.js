@@ -14,11 +14,15 @@ function mapIds(arr) {
 }
 
 // Error shape consumed by the controllers' handleError (statusCode + translationKey)
-function httpError(statusCode, translationKey) {
+function httpError(statusCode, translationKey, data = undefined) {
   const err = new Error(translationKey);
   err.statusCode = statusCode;
   err.translationKey = translationKey;
+  if (data !== undefined) err.data = data;
   return err;
 }
 
-module.exports = { idStr, idStrOrNull, mapIds, httpError };
+const isAdminUser = (user) =>
+  Boolean(user && (user.isAdmin === true || user.userType === "admin" || user.accountState?.userType === "admin"));
+
+module.exports = { idStr, idStrOrNull, mapIds, httpError, isAdminUser };

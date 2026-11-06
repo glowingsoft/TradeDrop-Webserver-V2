@@ -34,6 +34,7 @@ const tradeSchema = new mongoose.Schema(
     responder: { type: sideSchema, default: () => ({}) },
     status: { type: String, enum: ["active", "completed", "cancelled"], default: "active", index: true },
     disputeId: { type: ObjectId, ref: "Dispute", default: null },
+    conversationId: { type: ObjectId, ref: "Conversation", default: null },
     completedAt: { type: Date, default: null },
   },
   { timestamps: true },

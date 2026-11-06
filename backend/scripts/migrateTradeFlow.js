@@ -81,7 +81,7 @@ async function migrateLegacyTrades(db) {
       {
         $set: {
           dropOwnerId: t.ownerId,
-          kind: "drop",
+          kind: "collaboration",
           requesterId: t.applicantId,
           responderId: t.ownerId,
           requester: { doneAt: done ? doneAt : null, proof: "" },
@@ -129,7 +129,7 @@ async function migrateTapIns(db) {
           tapInId: t._id,
           dropId: t.dropId,
           dropOwnerId: (drop && drop.ownerId) || responderId,
-          kind: "drop",
+          kind: "collaboration",
           requesterId,
           responderId,
           requester: { doneAt: reqDone, proof: t.applicantJob?.completionImgUrl || "" },
@@ -156,6 +156,12 @@ async function migrateTapIns(db) {
     {},
     { $unset: { type: "", ownerJob: "", applicantJob: "", ownerHandle: "", applicantHandle: "" } },
   );
+  const accepted = await tapIns
+    .find({ status: "accepted", tradeId: { $type: "objectId" } }, { projection: { tradeId: 1 } })
+    .toArray();
+  for (const tapIn of accepted) {
+    await trades.updateOne({ _id: tapIn.tradeId, kind: "drop" }, { $set: { kind: "collaboration" } });
+  }
 
   // 3. withdrawn / deleted become pending requests marked with deletedAt
   const gone = await tapIns.updateMany({ status: { $in: ["withdrawn", "deleted"] } }, [
@@ -170,12 +176,67 @@ async function migrateDrops(db) {
   await drops.updateMany({ status: "deleted" }, [
     { $set: { deletedAt: { $ifNull: ["$deletedAt", "$updatedAt"] }, status: "closed" } },
   ]);
-  await drops.updateMany({ status: { $in: ["active", "expired"] } }, { $set: { status: "open" } });
+  await drops.updateMany({ status: "active" }, { $set: { status: "open" } });
   await drops.updateMany({ status: { $in: ["inprogress", "paused", "completed"] } }, { $set: { status: "closed" } });
-  await drops.updateMany({ type: { $exists: true } }, { $unset: { type: "" } });
+  await drops.updateMany(
+    { $or: [{ type: { $exists: false } }, { type: { $nin: ["in_person", "remote"] } }] },
+    [{ $set: { type: { $cond: [{ $eq: ["$locationType", "remote"] }, "remote", "in_person"] } } }],
+  );
   await drops.updateMany({ kind: { $exists: false } }, { $set: { kind: "drop" } });
   await drops.updateMany({ visibility: { $exists: false } }, { $set: { visibility: "public" } });
   await drops.updateMany({ deletedAt: { $exists: false } }, { $set: { deletedAt: null } });
+}
+
+async function migratePortfolioImages(db) {
+  await db.collection("users").updateMany(
+    { portfolioItems: { $exists: true, $ne: [] } },
+    [
+      {
+        $set: {
+          portfolioItems: {
+            $map: {
+              input: "$portfolioItems",
+              as: "item",
+              in: {
+                $mergeObjects: [
+                  "$$item",
+                  {
+                    imageUrl: {
+                      $cond: [
+                        {
+                          $and: [
+                            { $in: [{ $ifNull: ["$$item.imageUrl", ""] }, ["", null]] },
+                            {
+                              $gt: [
+                                {
+                                  $size: {
+                                    $cond: [{ $isArray: "$$item.photos" }, "$$item.photos", []],
+                                  },
+                                },
+                                0,
+                              ],
+                            },
+                          ],
+                        },
+                        {
+                          $arrayElemAt: [
+                            { $cond: [{ $isArray: "$$item.photos" }, "$$item.photos", []] },
+                            0,
+                          ],
+                        },
+                        "$$item.imageUrl",
+                      ],
+                    },
+                    photos: "$$REMOVE",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    ],
+  );
 }
 
 async function migrateReviews(db) {
@@ -231,10 +292,14 @@ async function migrateDisputes(db) {
 }
 
 async function syncModelIndexes() {
-  for (const n of ["Drop", "TapIn", "Trade", "Dispute", "Connection", "Review"]) {
+  for (const n of ["Drop", "TapIn", "Trade", "Dispute", "Connection", "ConnectionRequest", "Circle", "Event", "UserReport", "Review"]) {
     require(`../models/${n}`);
     await mongoose.model(n).syncIndexes();
   }
+  require("../models/UserModel");
+  await mongoose.model("User").syncIndexes();
+  require("../commonModules/chatModule/models/Conversation");
+  await mongoose.model("Conversation").syncIndexes();
 }
 
 async function run() {
@@ -247,6 +312,7 @@ async function run() {
   report.legacyTrades = await migrateLegacyTrades(db);
   report.tapIns = await migrateTapIns(db);
   await migrateDrops(db);
+  await migratePortfolioImages(db);
   report.reviews = await migrateReviews(db);
   report.legacyDisputesMoved = await migrateDisputes(db);
   await syncModelIndexes();

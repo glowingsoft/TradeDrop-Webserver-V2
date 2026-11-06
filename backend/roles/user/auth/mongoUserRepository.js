@@ -4,6 +4,7 @@
  */
 const { User } = require("../../../models/UserModel");
 const { idStr, idStrOrNull, mapIds } = require("../_shared/serialize");
+const { portfolioItemView } = require("@helperUtils/portfolioUtil");
 
 function toPublic(doc) {
   if (!doc) return null;
@@ -19,6 +20,8 @@ function toPublic(doc) {
     profileIcon: o.profileIcon || "",
     coverImage: o.coverImage || "",
     bio: o.bio || "",
+    category: idStrOrNull(o.category),
+    specialty: o.specialty || "",
     areaLabel: o.areaLabel || "",
     lat: o.lat ?? null,
     lng: o.lng ?? null,
@@ -40,12 +43,14 @@ function toPublic(doc) {
     otp: o.tfOtp || {},
     crafts: mapIds(o.crafts || []),
     links: o.links || [],
-    portfolioItems: (o.portfolioItems || []).map((p) => ({
+    portfolioItems: (o.portfolioItems || []).map((p) => portfolioItemView({
       _id: idStr(p._id),
       imageUrl: p.imageUrl || "",
+      imageUrls: p.imageUrls,
       title: p.title || "",
-      tags: p.tags || [],
       sortOrder: p.sortOrder ?? 0,
+      crafts: mapIds(p.crafts || []),
+      link: p.link || "",
     })),
     phoneNumber: o.phoneNumber || { code: "", number: "" },
     createdAt: o.createdAt,
