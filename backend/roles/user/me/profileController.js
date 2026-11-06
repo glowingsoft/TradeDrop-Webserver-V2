@@ -55,8 +55,6 @@ const postCraft = async (req, res) => {
 };
 
 const postPortfolio = async (req, res) => {
-  const validationOptions = { rawData: ["imageUrl"] };
-  if (!validateParams(req, res, validationOptions)) return;
   try {
     const { item, profile } = await profileService.addPortfolioItem(req.user._id, req.body);
     return sendResponse({
@@ -65,6 +63,15 @@ const postPortfolio = async (req, res) => {
       translationKey: "portfolio_item_added",
       data: { item, profile },
     });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+const patchPortfolio = async (req, res) => {
+  try {
+    const data = await profileService.patchPortfolioItem(req.user._id, req.params.id, req.body);
+    return sendResponse({ res, statusCode: 200, translationKey: "portfolio_item_updated", data });
   } catch (error) {
     return handleError(res, error);
   }
@@ -131,6 +138,7 @@ module.exports = {
   patchMe,
   postCraft,
   postPortfolio,
+  patchPortfolio,
   deletePortfolio,
   patchPrivacy,
   postVerification,

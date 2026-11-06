@@ -74,9 +74,10 @@ async function parseDraftContent(body = {}, owner) {
 
   if (body.type === "remote") {
     content.areaLabel = content.areaLabel || owner.areaLabel || "";
-    content.lat = owner.lat ?? null;
-    content.lng = owner.lng ?? null;
-    content.location = owner.lat != null && owner.lng != null ? [Number(owner.lng), Number(owner.lat)] : undefined;
+    content.lat = body.lat ?? owner.lat ?? null;
+    content.lng = body.lng ?? owner.lng ?? null;
+    content.location =
+      content.lat != null && content.lng != null ? [Number(content.lng), Number(content.lat)] : undefined;
   } else if (body.lat !== undefined || body.lng !== undefined) {
     if (
       body.lat == null ||

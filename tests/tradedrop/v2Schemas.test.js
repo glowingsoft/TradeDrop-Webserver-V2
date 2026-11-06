@@ -93,14 +93,24 @@ describe("V2 model validation", () => {
     );
   });
 
-  it("stores one image URL per portfolio item", () => {
+  it("supports up to six image URLs per portfolio item and legacy images", async () => {
     const user = new User({
       email: "portfolio@example.com",
       timezone: "UTC",
-      portfolioItems: [{ imageUrl: "cover.jpg", photos: ["other.jpg"] }],
+      portfolioItems: [{ imageUrl: "cover.jpg", tags: ["legacy"], imageUrls: ["cover.jpg", "other.jpg"] }],
     });
     const item = user.toObject().portfolioItems[0];
-    assert.equal(item.imageUrl, "cover.jpg");
-    assert.equal(Object.prototype.hasOwnProperty.call(item, "photos"), false);
+    assert.equal(item.imageUrl, undefined);
+    assert.equal(item.tags, undefined);
+    assert.deepEqual(item.imageUrls, ["cover.jpg", "other.jpg"]);
+    await user.validate();
+    user.portfolioItems[0].imageUrls = Array(7).fill("image.jpg");
+    await assert.rejects(user.validate());
+    user.portfolioItems[0].imageUrls = [];
+    await assert.rejects(user.validate());
+    user.portfolioItems[0].imageUrls = [null];
+    await assert.rejects(user.validate());
+    user.portfolioItems[0].imageUrls = undefined;
+    await user.validate();
   });
 });

@@ -5,10 +5,11 @@ const { parsePaginationParams, generateMeta } = require("@helperUtils/responseUt
 const Category = require("@models/Category");
 const { lookupUserCrafts, lookupUserRating } = require("@helperUtils/dbUtils/queryUtil");
 const Connection = require("@models/Connection");
-const ConnectionRequest = require("@models/ConnectionRequest");
 const BlockedUser = require("@models/BlockedUser");
 const { getAllDrops } = require("../drops/service");
-const { dropExpiredFilter } = require("../_shared/tradeShared");
+const { dropExpiredFilter, publicDropFilter, toDropView } = require("../_shared/tradeShared");
+const { getConnectionStatuses } = require("@helperUtils/connectionUtil");
+const { getUserDetails } = require("../_shared/userDetails");
 const { Drop } = require("@models/Drop");
 const { getFullImageUrl } = require("@helperUtils/imageHelper");
 
@@ -234,22 +235,8 @@ async function listRadar({ req, filter = {}, recent = false }) {
   const total = result?.total?.[0]?.count || 0;
   const people = result?.users || [];
   const userIds = people.map((user) => user._id);
-  const [connections, requests, dropIds, endedDropOwners] = await Promise.all([
-    Connection.find({
-      status: "active",
-      $or: [
-        { userA: viewer._id, userB: { $in: userIds } },
-        { userB: viewer._id, userA: { $in: userIds } },
-      ],
-    })
-      .select("userA userB status")
-      .lean(),
-    ConnectionRequest.find({
-      pairKey: { $in: userIds.map((id) => Connection.pairKeyFor(viewer._id, id)) },
-      status: { $in: ["pending", "declined"] },
-    })
-      .sort({ createdAt: -1 })
-      .lean(),
+  const [relationships, dropIds, endedDropOwners] = await Promise.all([
+    getConnectionStatuses(viewer._id, userIds),
     Drop.find({
       ownerId: { $in: userIds },
       status: "open",
@@ -264,15 +251,6 @@ async function listRadar({ req, filter = {}, recent = false }) {
       $or: [{ status: { $in: ["closed", "expired"] } }, { status: "open", expiresAt: { $ne: null, $lte: new Date() } }],
     }),
   ]);
-  const requestByPair = new Map();
-  for (const request of requests) {
-    if (!requestByPair.has(request.pairKey)) requestByPair.set(request.pairKey, request);
-  }
-  const connectedIds = new Set(
-    connections.map((connection) =>
-      String(connection.userA) === String(viewer._id) ? String(connection.userB) : String(connection.userA),
-    ),
-  );
   const dropsByOwner = new Map();
   for (const drop of dropIds) {
     const key = String(drop.ownerId);
@@ -281,24 +259,11 @@ async function listRadar({ req, filter = {}, recent = false }) {
   }
   const endedDropOwnerIds = new Set(endedDropOwners.map((ownerId) => String(ownerId)));
   const data = people.map((person) => {
-    const pair = Connection.pairKeyFor(viewer._id, person._id);
-    const latestRequest = requestByPair.get(pair);
-    const connected = connectedIds.has(String(person._id));
-    const incoming = latestRequest?.status === "pending" && String(latestRequest.recipientId) === String(viewer._id);
-    const outgoing = latestRequest?.status === "pending" && String(latestRequest.requesterId) === String(viewer._id);
-    const inCooldown = latestRequest?.status === "declined" && latestRequest.cooldownUntil > new Date();
+    const relationship = relationships.get(String(person._id));
     return {
       ...person,
-      connectionStatus: connected
-        ? "connected"
-        : incoming
-          ? "incoming_request"
-          : outgoing
-            ? "request_sent"
-            : latestRequest?.status === "declined"
-              ? "declined"
-              : "not_connected",
-      canSendConnectionRequest: !connected && !incoming && !outgoing && !inCooldown,
+      connectionStatus: relationship.connectionStatus,
+      canSendConnectionRequest: relationship.canSendConnectionRequest,
       openDropIds: dropsByOwner.get(String(person._id)) || [],
       isNew: !endedDropOwnerIds.has(String(person._id)),
       portfolio: person.portfolio?.map((p) => ({ ...p, imageUrl: getFullImageUrl(p.imageUrl) })) || [],
@@ -425,6 +390,24 @@ async function listRadarPeople(req) {
   };
 }
 
+async function getRadarPerson(req) {
+  const viewerId = req.user?._id;
+  const user = await getUserDetails(viewerId, req.params.id);
+  const { page, limit } = parsePaginationParams(req);
+  const dropQuery = { ...publicDropFilter(), ownerId: user._id };
+  const drops = await Drop.find(dropQuery)
+    .sort({ createdAt: -1, _id: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .populate("timingChip", "value label")
+    .lean();
+  return {
+    ...user,
+    connectionId: user.connectionId || user.requestId,
+    openDrops: drops.map((drop) => toDropView(drop, viewerId)),
+  };
+}
+
 async function listRadarDrops(req) {
   const viewer = req.user;
   if (!viewer?._id) throw AppError("unauthorized", 401);
@@ -463,6 +446,7 @@ async function listRadarTabs(req) {
 module.exports = {
   listRadar,
   listRadarPeople,
+  getRadarPerson,
   listRadarDrops,
   listRadarTabs,
   excludedUserIds,

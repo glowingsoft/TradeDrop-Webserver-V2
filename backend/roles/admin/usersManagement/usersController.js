@@ -10,7 +10,7 @@ const { User } = require("@UsersModel");
 const { formatUserResponse } = require("../../../helperUtils/userResponseUtil.js");
 const usersService = require("./usersService.js");
 const { registerUserUtility } = require("../../../controllers/authUtil.js");
-const { getFullImageUrl } = require("@helperUtils/imageHelper.js");
+const { portfolioItemView } = require("@helperUtils/portfolioUtil");
 const badgesService = require("../badges/badgesService");
 const { getAllReviews: getAllTapInReviews } = require("@backend/roles/user/trades/service.js");
 const Connection = require("@models/Connection");
@@ -214,13 +214,9 @@ const getUserDetails = async (req, res) => {
 
     const response = formatUserResponse(userObject);
     response.profile.links = userObject.links || [];
-    response.portfolioItems =
-      userObject.portfolioItems?.map((item) => {
-        return {
-          ...item,
-          imageUrl: getFullImageUrl(item?.imageUrl) || null,
-        };
-      }) || [];
+    response.portfolioItems = (user.toObject().portfolioItems || []).map((item) =>
+      portfolioItemView(item, { fullUrls: true }),
+    );
 
     const [relationshipStats] = await Connection.aggregate([
       {

@@ -7,6 +7,7 @@ const {
   patchMe,
   postCraft,
   postPortfolio,
+  patchPortfolio,
   deletePortfolio,
   patchPrivacy,
   deleteMe,
@@ -26,6 +27,7 @@ router.patch("/announcements/:id/read", readAnnouncement);
 router.patch("/", patchMe);
 router.post("/crafts", postCraft);
 router.post("/portfolio", postPortfolio);
+router.patch("/portfolio/:id", patchPortfolio);
 router.delete("/portfolio/:id", deletePortfolio);
 router.patch("/privacy", patchPrivacy);
 router.delete("/", deleteMe);

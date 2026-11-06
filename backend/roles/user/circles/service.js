@@ -4,7 +4,7 @@ const Category = require("@models/Category");
 const UserReport = require("@models/UserReport");
 const Event = require("@models/Event");
 const Connection = require("@models/Connection");
-const ConnectionRequest = require("@models/ConnectionRequest");
+const { getConnectionStatuses } = require("@helperUtils/connectionUtil");
 const { getFullImageUrl } = require("@helperUtils/imageHelper");
 const CircleMember = require("@models/CircleMember");
 const membership = require("./membership");
@@ -604,55 +604,17 @@ async function latestMembersFor(circleId, viewerId = null) {
     .lean();
   if (!rows.length) return [];
   const userIds = rows.map((row) => row.userId);
-  const [users, connections, requests] = await Promise.all([
+  const [users, relationships] = await Promise.all([
     User.find({ _id: { $in: userIds } })
       .select("name handle profileIcon")
       .lean(),
-    viewerId
-      ? Connection.find({
-          status: "active",
-          $or: [
-            { userA: viewerId, userB: { $in: userIds } },
-            { userB: viewerId, userA: { $in: userIds } },
-          ],
-        })
-          .select("userA userB")
-          .lean()
-      : [],
-    viewerId
-      ? ConnectionRequest.find({
-          pairKey: { $in: userIds.map((id) => Connection.pairKeyFor(viewerId, id)) },
-          status: { $in: ["pending", "declined"] },
-        })
-          .sort({ createdAt: -1 })
-          .lean()
-      : [],
+    viewerId ? getConnectionStatuses(viewerId, userIds) : new Map(),
   ]);
   const userById = new Map(users.map((user) => [String(user._id), user]));
-  const connectedIds = new Set(
-    connections.map((item) => (String(item.userA) === String(viewerId) ? String(item.userB) : String(item.userA))),
-  );
-  const requestByPair = new Map();
-  for (const request of requests) {
-    if (!requestByPair.has(request.pairKey)) requestByPair.set(request.pairKey, request);
-  }
   return rows.map((row) => {
     const id = String(row.userId);
     const user = userById.get(id);
-    let connectionStatus = null;
-    let canSendConnectionRequest = false;
-    if (viewerId) {
-      const latest = requestByPair.get(Connection.pairKeyFor(viewerId, row.userId));
-      const incoming = latest?.status === "pending" && String(latest.recipientId) === String(viewerId);
-      const outgoing = latest?.status === "pending" && String(latest.requesterId) === String(viewerId);
-      const inCooldown = latest?.status === "declined" && latest.cooldownUntil > new Date();
-      if (id === String(viewerId)) connectionStatus = "self";
-      else if (connectedIds.has(id)) connectionStatus = "connected";
-      else if (incoming) connectionStatus = "incoming_request";
-      else if (outgoing) connectionStatus = "request_sent";
-      else connectionStatus = latest?.status === "declined" ? "declined" : "not_connected";
-      canSendConnectionRequest = ["not_connected", "declined"].includes(connectionStatus) && !inCooldown;
-    }
+    const relationship = relationships.get(id);
     return {
       userId: id,
       name: user?.name || "",
@@ -660,8 +622,8 @@ async function latestMembersFor(circleId, viewerId = null) {
       profileIcon: user?.profileIcon ? getFullImageUrl(user.profileIcon) : "",
       role: row.role,
       joinedAt: row.joinedAt,
-      connectionStatus,
-      canSendConnectionRequest,
+      connectionStatus: relationship?.connectionStatus || null,
+      canSendConnectionRequest: relationship?.canSendConnectionRequest || false,
     };
   });
 }

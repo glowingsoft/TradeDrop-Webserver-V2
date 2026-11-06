@@ -7,6 +7,7 @@ const { UserBadge } = require("../../../models/UserBadge");
 const { User } = require("@UsersModel");
 const { Drop } = require("@models/Drop");
 const { getFullImageUrl } = require("@helperUtils/imageHelper");
+const { MAX_PORTFOLIO_IMAGES, portfolioItemView } = require("@helperUtils/portfolioUtil");
 
 const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 const TIMING_CHIPS = ["asap", "this_week", "this_month", "flexible"];
@@ -65,7 +66,7 @@ function selfProfile(user) {
       lat: user.lat,
       lng: user.lng,
     },
-    portfolioItems: user.portfolioItems || [],
+    portfolioItems: (user.portfolioItems || []).map((item) => portfolioItemView(item)),
     verified: !!user.verified,
     crafts: user.crafts || [],
     metadata: {
@@ -265,50 +266,35 @@ async function patchMe(userId, body = {}) {
   return profile;
 }
 
+function parsePortfolioImages(body) {
+  const values = body.imageUrls;
+  if (!Array.isArray(values) || values.length < 1 || values.length > MAX_PORTFOLIO_IMAGES ||
+      values.some((value) => typeof value !== "string" || !value.trim())) {
+    throw AppError("portfolio_image_urls_invalid", 400);
+  }
+  return values.map((value) => value.trim());
+}
+
+function validatePortfolioFields(body) {
+  if (body.imageUrl !== undefined || body.tags !== undefined) throw AppError("portfolio_field_invalid", 400);
+}
+
 async function addPortfolioItem(userId, body = {}) {
   const user = await requireUser(userId);
-
-  const items = [...(user.portfolioItems || [])];
-
-  // ==========================================
-  // MAX PORTFOLIO CHECK
-  // ==========================================
-  if (items.length >= MAX_PORTFOLIO) {
-    throw AppError("portfolio_max_reached", 400);
-  }
-
-  if (items.some((i) => i.title?.toLowerCase() === body.title?.toLowerCase())) {
+  validatePortfolioFields(body);
+  const items = user.portfolioItems || [];
+  if (items.length >= MAX_PORTFOLIO) throw AppError("portfolio_max_reached", 400);
+  const title = body.title ? String(body.title).trim() : "";
+  if (items.some((item) => item.title?.toLowerCase() === title.toLowerCase())) {
     throw AppError("portfolio_item_duplicate", 400);
   }
-
-  // ==========================================
-  // IMAGE REQUIRED
-  // ==========================================
-  const imageUrl = typeof body.imageUrl === "string" ? body.imageUrl.trim() : "";
-  if (!imageUrl) throw AppError("image_url_required", 400);
-
-  // ==========================================
-  // BUILD PORTFOLIO ITEM
-  // ==========================================
+  const imageUrls = parsePortfolioImages(body);
   const item = {
     _id: createId(),
-
-    imageUrl,
-
-    title: body.title ? String(body.title).trim() : "",
-
-    tags: Array.isArray(body.tags) ? body.tags.map(String) : [],
-
+    imageUrls,
+    title,
     sortOrder: body.sortOrder !== undefined ? Number(body.sortOrder) : items.length,
-
-    crafts: Array.isArray(body.crafts) ? body.crafts.map(String) : [],
-    link: body.link ? String(body.link).trim() : "",
   };
-
-  // ==========================================
-  // SAVE
-  // ==========================================
-  items.push(item);
 
   const updatedDoc = await User.findOneAndUpdate(
     {
@@ -327,14 +313,48 @@ async function addPortfolioItem(userId, body = {}) {
   };
 }
 
+async function patchPortfolioItem(userId, itemId, body = {}) {
+  const user = await requireUser(userId);
+  validatePortfolioFields(body);
+  const item = (user.portfolioItems || []).find((entry) => String(entry._id) === String(itemId));
+  if (!item) throw AppError("portfolio_item_not_found", 404);
+  const patch = {};
+  if (body.imageUrls !== undefined) {
+    const imageUrls = parsePortfolioImages(body);
+    patch["portfolioItems.$.imageUrls"] = imageUrls;
+  }
+  if (body.title !== undefined) {
+    if (typeof body.title !== "string") throw AppError("portfolio_title_invalid", 400);
+    const title = body.title.trim();
+    if ((user.portfolioItems || []).some((entry) =>
+      String(entry._id) !== String(itemId) && entry.title?.toLowerCase() === title.toLowerCase())) {
+      throw AppError("portfolio_item_duplicate", 400);
+    }
+    patch["portfolioItems.$.title"] = title;
+  }
+  if (body.sortOrder !== undefined) {
+    if (!Number.isFinite(Number(body.sortOrder))) throw AppError("portfolio_sort_order_invalid", 400);
+    patch["portfolioItems.$.sortOrder"] = Number(body.sortOrder);
+  }
+  if (!Object.keys(patch).length) throw AppError("portfolio_update_required", 400);
+  const updated = await User.findOneAndUpdate(
+    { _id: user._id, deletedAt: null, "portfolioItems._id": itemId },
+    { $set: patch },
+    { new: true, runValidators: true },
+  ).lean();
+  if (!updated) throw AppError("portfolio_item_not_found", 404);
+  return selfProfile(await repo.findById(user._id));
+}
+
 async function deletePortfolioItem(userId, itemId) {
   const user = await requireUser(userId);
-  const items = [...(user.portfolioItems || [])];
-  const idx = items.findIndex((i) => String(i._id) === String(itemId));
-  if (idx === -1) throw AppError("portfolio_item_not_found", 404);
-  items.splice(idx, 1);
-  const updated = await repo.update(user._id, { portfolioItems: items });
-  return selfProfile(updated);
+  const updated = await User.findOneAndUpdate(
+    { _id: user._id, deletedAt: null, "portfolioItems._id": itemId },
+    { $pull: { portfolioItems: { _id: itemId } } },
+    { new: true },
+  ).lean();
+  if (!updated) throw AppError("portfolio_item_not_found", 404);
+  return selfProfile(await repo.findById(user._id));
 }
 
 async function patchPrivacy(userId, body = {}) {
@@ -371,6 +391,7 @@ module.exports = {
   addCraft,
   patchMe,
   addPortfolioItem,
+  patchPortfolioItem,
   deletePortfolioItem,
   patchPrivacy,
   softDeleteMe,

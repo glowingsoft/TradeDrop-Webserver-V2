@@ -494,10 +494,49 @@ module.exports = {
         tags: ["Profile"],
         summary: "Add portfolio item (API-024)",
         security: [{ bearerAuth: [] }],
-        responses: { 200: { description: "Item added (max 12)" } },
+        description: "An item requires one to six imageUrls. Maximum 12 items.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  imageUrls: { type: "array", minItems: 1, maxItems: 6, items: { type: "string" } },
+                  title: { type: "string" },
+                  sortOrder: { type: "number" },
+                },
+              },
+            },
+          },
+        },
+        responses: { 201: { description: "Item added" }, 400: { description: "Invalid images or portfolio limit reached" } },
       },
     },
     "/me/portfolio/{id}": {
+      patch: {
+        tags: ["Profile"],
+        summary: "Edit a portfolio item",
+        description: "imageUrls replaces the complete image list; use it to add, remove, reorder or replace images. One to six images are required.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  imageUrls: { type: "array", minItems: 1, maxItems: 6, items: { type: "string" } },
+                  title: { type: "string" },
+                  sortOrder: { type: "number" },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: "Updated profile" }, 400: { description: "Invalid update" }, 404: { description: "Item not found" } },
+      },
       delete: {
         tags: ["Profile"],
         summary: "Remove portfolio item (API-025)",
@@ -613,6 +652,80 @@ module.exports = {
           { name: "hasAnOpenDrop", in: "query", schema: { type: "boolean" } },
         ],
         responses: { 200: { description: "Radar people" } },
+      },
+    },
+    "/radar/people/{id}": {
+      get: {
+        tags: ["Radar"],
+        summary: "Radar person details, connection state and public open Drops",
+        description:
+          "Returns a visible radar profile with connectionCount, connectionStatus, requestSent and requestId. " +
+          "connectionId contains the active connection ID, or the outgoing request ID when a request is pending. " +
+          "latestConnections contains up to two active connection profiles visible to the viewer, ordered by most recently updated. " +
+          "mutualCollaborationCount counts active and completed collaborations between the viewer and the person. " +
+          "latestCollaborations contains at most two completed collaboration summaries; latestCircles contains " +
+          "at most two non-deleted circles created by the person, including invite-only circles. " +
+          "openDrops is a paginated array of public, open, unexpired Drops. " +
+          "Blocked, deleted, inactive or radar-hidden users are not returned.",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1, default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 10 } },
+        ],
+        responses: {
+          200: {
+            description: "Radar person details and paginated open Drops",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    message: { type: "string" },
+                    data: {
+                      type: "object",
+                      properties: {
+                        _id: { type: "string" },
+                        name: { type: "string" },
+                        handle: { type: "string" },
+                        profileIcon: { type: "string" },
+                        hasConnection: { type: "boolean" },
+                        connectionId: { type: "string", nullable: true },
+                        requestId: { type: "string", nullable: true },
+                        connectionCount: { type: "integer", minimum: 0 },
+                        mutualCollaborationCount: { type: "integer", minimum: 0 },
+                        latestConnections: {
+                          type: "array",
+                          maxItems: 2,
+                          items: {
+                            type: "object",
+                            properties: {
+                              _id: { type: "string" },
+                              name: { type: "string" },
+                              handle: { type: "string" },
+                              profileIcon: { type: "string" },
+                            },
+                          },
+                        },
+                        requestSent: { type: "boolean" },
+                        connectionStatus: {
+                          type: "string",
+                          enum: ["connected", "incoming_request", "request_sent", "declined", "not_connected"],
+                        },
+                        canSendConnectionRequest: { type: "boolean" },
+                        openDrops: { type: "array", items: { type: "object" } },
+                        latestCollaborations: { type: "array", maxItems: 2, items: { type: "object" } },
+                        latestCircles: { type: "array", maxItems: 2, items: { type: "object" } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          401: { description: "Authentication required" },
+          404: { description: "Person not found or not visible" },
+        },
       },
     },
     "/radar/drops": {
