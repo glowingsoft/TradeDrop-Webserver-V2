@@ -497,13 +497,25 @@ async function getDrop(dropId, viewerId = null) {
       viewerId && (String(viewerId) === String(drop.ownerId) || String(viewerId) === String(drop.targetUserId));
     if (!allowed) throw httpError(404, "drop_not_found");
   }
-  const [trade, mutualCollaborationCount] = await Promise.all([
+  const [trade, mutualCollaborationCount, tapIn] = await Promise.all([
     Trade.findOne({ dropId: id, status: { $in: ["active", "completed"] } })
       .select("status")
       .lean(),
     countMutualCollaborations(viewerId, drop.ownerId),
+    viewerId
+      ? TapIn.findOne({ dropId: id, requesterId: viewerId })
+          .sort({ createdAt: -1, _id: -1 })
+          .select("status notes deletedAt")
+          .lean()
+      : null,
   ]);
-  return { ...toDropView(drop, viewerId, { trade }), mutualCollaborationCount };
+  const isTappedIn = Boolean(tapIn && !tapIn.deletedAt);
+  return {
+    ...toDropView(drop, viewerId, { trade }),
+    mutualCollaborationCount,
+    isTappedIn,
+    myTapIn: tapIn,
+  };
 }
 
 async function listPublic(req, viewerId = null) {
