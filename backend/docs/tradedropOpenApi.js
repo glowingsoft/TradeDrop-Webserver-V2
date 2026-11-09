@@ -299,8 +299,9 @@ module.exports = {
         summary: "Drop detail (API-013)",
         description:
           "mutualCollaborationCount counts active and completed collaborations between the viewer and the Drop owner. " +
-          "It is zero for anonymous viewers and the owner. isTappedIn and tapInStatus describe the viewer's latest " +
-          "Tap In; a withdrawn Tap In or an anonymous viewer returns false and null.",
+          "It is zero for anonymous viewers and the owner. isTappedIn and myTapIn describe the viewer's latest " +
+          "Tap In; a withdrawn or declined Tap In, or an anonymous viewer, returns false and null. " +
+          "A viewer may Tap In again after withdrawal or decline while the Drop remains eligible.",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
         responses: {
           200: {
@@ -315,10 +316,15 @@ module.exports = {
                       properties: {
                         mutualCollaborationCount: { type: "integer", minimum: 0 },
                         isTappedIn: { type: "boolean" },
-                        tapInStatus: {
-                          type: "string",
-                          enum: ["pending", "accepted", "declined", "closed"],
+                        myTapIn: {
+                          type: "object",
                           nullable: true,
+                          properties: {
+                            _id: { type: "string" },
+                            status: { type: "string", enum: ["pending", "accepted", "closed"] },
+                            notes: { type: "string" },
+                            deletedAt: { type: "string", format: "date-time", nullable: true },
+                          },
                         },
                       },
                     },

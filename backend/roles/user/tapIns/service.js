@@ -95,7 +95,6 @@ async function sendDirect(kind, userId, targetUserId, body = {}) {
   return result;
 }
 
-
 async function tapIn(userId, dropId, body = {}) {
   const id = toObjectId(dropId, "drop_not_found");
   const drop = await Drop.findOne({ _id: id, ...publicDropFilter() }).lean();
@@ -132,7 +131,7 @@ async function withdrawTapIn(userId, tapInId) {
   const id = toObjectId(tapInId, "tap_in_not_found");
   const updated = await TapIn.findOneAndUpdate(
     { _id: id, requesterId: userId, status: "pending", deletedAt: null },
-    { $set: { deletedAt: new Date() } },
+    { $set: { deletedAt: new Date(), status: "closed" } },
     { new: true },
   ).lean();
   if (updated) {
@@ -210,7 +209,12 @@ async function acceptTapIn(userId, tapInId) {
     ).lean();
     if (!drop) {
       const existing = await Drop.findById(accepted.dropId).session(session).lean();
-      if (existing?.status === "open" && !existing.deletedAt && existing.expiresAt && existing.expiresAt <= new Date()) {
+      if (
+        existing?.status === "open" &&
+        !existing.deletedAt &&
+        existing.expiresAt &&
+        existing.expiresAt <= new Date()
+      ) {
         throw httpError(409, "drop_expired");
       }
       throw httpError(409, "drop_not_open");
