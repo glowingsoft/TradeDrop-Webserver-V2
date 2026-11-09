@@ -8,6 +8,7 @@ const {
 const { getFullImageUrl } = require("../../../helperUtils/imageHelper");
 const { Favorites } = require("../../../commonModules/favorites/Favorite");
 const { User } = require("@UsersModel");
+const Category = require("../../../models/Category");
 
 const fail = (res, error) => {
   const { statusCode, message } = getReadableErrorMessage(error);
@@ -52,7 +53,7 @@ const toggleFavorite = async (req, res) => {
 
 /**
  * @route GET /api/v1/favorites
- * @desc Paginated list of users the logged-in user has favorited
+ * @desc Paginated list of favorited users, including crafts with full image URLs
  */
 const getUserFavorites = async (req, res) => {
   const { page, limit } = parsePaginationParams(req);
@@ -64,7 +65,11 @@ const getUserFavorites = async (req, res) => {
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
-        .populate("target", "name handle profileIcon")
+        .populate({
+          path: "target",
+          select: "name handle profileIcon crafts",
+          populate: { path: "crafts", model: Category, select: "name image" },
+        })
         .lean(),
       Favorites.countDocuments(filter),
     ]);
@@ -76,6 +81,11 @@ const getUserFavorites = async (req, res) => {
         name: target.name,
         handle: target.handle,
         profileIcon: getFullImageUrl(target.profileIcon) || null,
+        crafts: (target.crafts || []).filter(Boolean).map((craft) => ({
+          _id: craft._id,
+          name: craft.name,
+          image: getFullImageUrl(craft.image),
+        })),
         favoritedAt: createdAt,
       }));
 
