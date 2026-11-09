@@ -509,12 +509,12 @@ async function getDrop(dropId, viewerId = null) {
           .lean()
       : null,
   ]);
-  const isTappedIn = Boolean(tapIn && !tapIn.deletedAt);
+  const isTappedIn = Boolean(tapIn && !tapIn.deletedAt && tapIn.status !== "declined");
   return {
     ...toDropView(drop, viewerId, { trade }),
     mutualCollaborationCount,
     isTappedIn,
-    myTapIn: tapIn,
+    myTapIn: isTappedIn ? tapIn : null,
   };
 }
 

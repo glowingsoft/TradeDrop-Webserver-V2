@@ -87,7 +87,7 @@ describe("drop detail mutual collaborations", () => {
     const anonymousResult = await getDrop(dropId);
     assert.equal(anonymousResult.mutualCollaborationCount, 0);
     assert.equal(anonymousResult.isTappedIn, false);
-    assert.equal(anonymousResult.tapInStatus, null);
+    assert.equal(anonymousResult.myTapIn, null);
     assert.equal(tapInCalls, 0);
     const ownerResult = await getDrop(dropId, ownerId);
     assert.equal(ownerResult.mutualCollaborationCount, 0);
@@ -96,24 +96,49 @@ describe("drop detail mutual collaborations", () => {
   });
 
   it("returns the latest Tap In status for the current requester", async () => {
-    for (const status of ["pending", "accepted", "declined", "closed"]) {
-      tapIn = { status, deletedAt: null };
+    for (const status of ["pending", "accepted", "closed"]) {
+      tapIn = { _id: new mongoose.Types.ObjectId(), status, notes: "Hello", deletedAt: null };
       const result = await getDrop(dropId, viewerId);
       assert.equal(result.isTappedIn, true);
-      assert.equal(result.tapInStatus, status);
+      assert.deepEqual(result.myTapIn, tapIn);
     }
     assert.deepEqual(tapInFilter, { dropId, requesterId: viewerId });
     assert.deepEqual(tapInSort, { createdAt: -1, _id: -1 });
   });
 
-  it("treats a withdrawn or nonexistent latest Tap In as not tapped in", async () => {
-    tapIn = { status: "pending", deletedAt: new Date() };
-    for (const latest of [tapIn, null]) {
+  it("hides withdrawn, declined or nonexistent latest Tap Ins", async () => {
+    for (const latest of [
+      { status: "pending", deletedAt: new Date() },
+      { status: "closed", deletedAt: new Date() },
+      { status: "declined", deletedAt: null },
+      null,
+    ]) {
       tapIn = latest;
       const result = await getDrop(dropId, viewerId);
       assert.equal(result.isTappedIn, false);
-      assert.equal(result.tapInStatus, null);
+      assert.equal(result.myTapIn, null);
     }
+  });
+
+  it("returns the new pending Tap In after a withdrawal or decline", async () => {
+    for (const previous of [
+      { status: "closed", deletedAt: new Date() },
+      { status: "declined", deletedAt: null },
+    ]) {
+      tapIn = previous;
+      assert.equal((await getDrop(dropId, viewerId)).myTapIn, null);
+      tapIn = { _id: new mongoose.Types.ObjectId(), status: "pending", notes: "Retry", deletedAt: null };
+      const result = await getDrop(dropId, viewerId);
+      assert.equal(result.isTappedIn, true);
+      assert.deepEqual(result.myTapIn, tapIn);
+    }
+  });
+
+  it("limits the duplicate-request index to non-withdrawn pending Tap Ins", () => {
+    const index = TapIn.schema.indexes().find(([fields]) => fields.requesterId === 1 && fields.dropId === 1);
+    assert.ok(index);
+    assert.equal(index[1].unique, true);
+    assert.deepEqual(index[1].partialFilterExpression, { status: "pending", deletedAt: { $type: "null" } });
   });
 
   it("does not query collaborations for inaccessible drops", async () => {
