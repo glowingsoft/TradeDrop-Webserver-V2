@@ -400,6 +400,67 @@ module.exports = {
         },
       },
     },
+    "/tap-ins/{id}": {
+      get: {
+        tags: ["Tap-ins"],
+        summary: "Tap In detail for its requester or responder",
+        description:
+          "Returns Tap In fields and the requester profile. requester.collaborationCount is the total number " +
+          "of active and completed collaborations involving the requester. Withdrawn Tap Ins are not returned; " +
+          "requester is null if the user is unavailable.",
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: {
+          200: {
+            description: "Tap In detail",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    data: {
+                      type: "object",
+                      properties: {
+                        requesterId: { type: "string" },
+                        responderId: { type: "string" },
+                        status: { type: "string", enum: ["pending", "accepted", "declined", "closed"] },
+                        requester: {
+                          type: "object",
+                          nullable: true,
+                          properties: {
+                            _id: { type: "string" },
+                            name: { type: "string" },
+                            handle: { type: "string" },
+                            profileIcon: { type: "string" },
+                            bio: { type: "string" },
+                            specialty: { type: "string" },
+                            areaLabel: { type: "string" },
+                            crafts: {
+                              type: "array",
+                              items: {
+                                type: "object",
+                                properties: {
+                                  _id: { type: "string" },
+                                  name: { type: "string" },
+                                  image: { type: "string" },
+                                },
+                              },
+                            },
+                            collaborationCount: { type: "integer", minimum: 0 },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          403: { description: "Not a Tap In participant" },
+          404: { description: "Tap In not found" },
+        },
+      },
+    },
     "/tap-ins/{id}/jobs/complete": {
       post: {
         tags: ["Tap-ins"],
