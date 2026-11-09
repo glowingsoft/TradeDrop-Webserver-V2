@@ -10,6 +10,7 @@ for (const [alias, target] of Object.entries(require("../../aliasConfig/pathAlia
 }
 
 const TapIn = require("../../backend/models/TapIn");
+const { Drop } = require("../../backend/models/Drop");
 const Trade = require("../../backend/models/Trade");
 const { User } = require("../../backend/models/UserModel");
 const controller = require("../../backend/roles/user/tapIns/controller");
@@ -31,6 +32,7 @@ describe("Tap In detail", () => {
     original.findTapIn = TapIn.findOne;
     original.findUser = User.findOne;
     original.countTrades = Trade.countDocuments;
+    original.findDrop = Drop.findById;
     original.baseUrl = process.env.S3_BASE_URL;
     process.env.S3_BASE_URL = "https://images.example.com/";
     app = express();
@@ -57,6 +59,8 @@ describe("Tap In detail", () => {
       },
       userQueries: 0,
       countQueries: 0,
+      dropQueries: 0,
+      drop: { _id: dropId, offerText: "Offer", needText: "Need", status: "open" },
     };
     TapIn.findOne = (filter) => {
       state.tapInFilter = filter;
@@ -82,12 +86,23 @@ describe("Tap In detail", () => {
       state.countFilter = filter;
       return 4;
     };
+    Drop.findById = (id) => {
+      state.dropQueries += 1;
+      state.dropId = id;
+      return {
+        select: (fields) => {
+          state.dropFields = fields;
+          return { lean: async () => state.drop };
+        },
+      };
+    };
   });
 
   after(() => {
     TapIn.findOne = original.findTapIn;
     User.findOne = original.findUser;
     Trade.countDocuments = original.countTrades;
+    Drop.findById = original.findDrop;
     if (original.baseUrl === undefined) delete process.env.S3_BASE_URL;
     else process.env.S3_BASE_URL = original.baseUrl;
   });
@@ -98,6 +113,9 @@ describe("Tap In detail", () => {
     assert.equal(body.data.requesterId, String(requesterId));
     assert.equal(body.data.responderId, String(responderId));
     assert.equal(body.data.status, "pending");
+    assert.deepEqual(body.data.dropId, { _id: String(dropId), offerText: "Offer", needText: "Need", status: "open" });
+    assert.equal(String(state.dropId), String(dropId));
+    assert.equal(state.dropFields, "offerText needText status");
     assert.deepEqual(body.data.requester, {
       _id: String(requesterId),
       name: "Requester",
@@ -129,6 +147,7 @@ describe("Tap In detail", () => {
     await supertest(securedApp).get(`/tap-ins/${tapInId}`).expect(401);
     assert.equal(state.userQueries, 0);
     assert.equal(state.countQueries, 0);
+    assert.equal(state.dropQueries, 0);
   });
 
   it("allows the requester and handles an unavailable requester", async () => {
@@ -138,10 +157,17 @@ describe("Tap In detail", () => {
     assert.equal(result.requesterId, String(requesterId));
   });
 
+  it("returns null for a missing drop", async () => {
+    state.drop = null;
+    const result = await getTapIn(requesterId, tapInId);
+    assert.equal(result.dropId, null);
+  });
+
   it("rejects other users before loading requester details or counts", async () => {
     await assert.rejects(getTapIn(otherId, tapInId), { statusCode: 403 });
     assert.equal(state.userQueries, 0);
     assert.equal(state.countQueries, 0);
+    assert.equal(state.dropQueries, 0);
   });
 
   it("rejects missing and invalid Tap Ins", async () => {
@@ -150,10 +176,18 @@ describe("Tap In detail", () => {
     await assert.rejects(getTapIn(responderId, "invalid"), { statusCode: 404 });
     assert.equal(state.userQueries, 0);
     assert.equal(state.countQueries, 0);
+    assert.equal(state.dropQueries, 0);
   });
 
   it("propagates collaboration count errors", async () => {
     Trade.countDocuments = async () => { throw new Error("count failed"); };
     await assert.rejects(getTapIn(responderId, tapInId), { message: "count failed" });
+  });
+
+  it("propagates drop lookup errors", async () => {
+    Drop.findById = () => ({
+      select: () => ({ lean: async () => { throw new Error("drop lookup failed"); } }),
+    });
+    await assert.rejects(getTapIn(responderId, tapInId), { message: "drop lookup failed" });
   });
 });

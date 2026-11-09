@@ -343,7 +343,7 @@ async function getTapIn(userId, tapInId) {
     throw httpError(403, "access_denied");
   }
 
-  const [requester, collaborationCount] = await Promise.all([
+  const [requester, collaborationCount, drop] = await Promise.all([
     User.findOne({ _id: tapIn.requesterId, deletedAt: null })
       .select("name handle profileIcon bio specialty areaLabel crafts")
       .populate("crafts", "name image")
@@ -353,9 +353,13 @@ async function getTapIn(userId, tapInId) {
       status: { $in: ["active", "completed"] },
       $or: [{ requesterId: tapIn.requesterId }, { responderId: tapIn.requesterId }],
     }),
+    Drop.findById(tapIn.dropId).select("offerText needText status").lean(),
   ]);
   return {
     ...toTapInView(tapIn),
+    dropId: drop
+      ? { _id: idStr(drop._id), offerText: drop.offerText, needText: drop.needText, status: drop.status }
+      : null,
     requester: requester
       ? {
           ...userBrief(requester),
