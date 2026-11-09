@@ -407,7 +407,8 @@ module.exports = {
         description:
           "Returns Tap In fields and the requester profile. requester.collaborationCount is the total number " +
           "of active and completed collaborations involving the requester. Withdrawn Tap Ins are not returned; " +
-          "requester is null if the user is unavailable.",
+          "requester is null if the user is unavailable. dropId contains the associated Drop's offerText, needText " +
+          "and status, or null if the Drop no longer exists.",
         security: [{ bearerAuth: [] }],
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
         responses: {
@@ -421,6 +422,16 @@ module.exports = {
                     data: {
                       type: "object",
                       properties: {
+                        dropId: {
+                          type: "object",
+                          nullable: true,
+                          properties: {
+                            _id: { type: "string" },
+                            offerText: { type: "string" },
+                            needText: { type: "string" },
+                            status: { type: "string", enum: ["draft", "open", "closed", "expired"] },
+                          },
+                        },
                         requesterId: { type: "string" },
                         responderId: { type: "string" },
                         status: { type: "string", enum: ["pending", "accepted", "declined", "closed"] },
