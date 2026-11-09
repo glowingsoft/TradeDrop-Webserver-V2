@@ -17,6 +17,7 @@ const {
   escapeRegex,
   publicDropFilter,
   toDropView,
+  countMutualCollaborations,
   parseDropContent,
   parseDropTiming,
   parseLocationType,
@@ -496,10 +497,13 @@ async function getDrop(dropId, viewerId = null) {
       viewerId && (String(viewerId) === String(drop.ownerId) || String(viewerId) === String(drop.targetUserId));
     if (!allowed) throw httpError(404, "drop_not_found");
   }
-  const trade = await Trade.findOne({ dropId: id, status: { $in: ["active", "completed"] } })
-    .select("status")
-    .lean();
-  return toDropView(drop, viewerId, { trade });
+  const [trade, mutualCollaborationCount] = await Promise.all([
+    Trade.findOne({ dropId: id, status: { $in: ["active", "completed"] } })
+      .select("status")
+      .lean(),
+    countMutualCollaborations(viewerId, drop.ownerId),
+  ]);
+  return { ...toDropView(drop, viewerId, { trade }), mutualCollaborationCount };
 }
 
 async function listPublic(req, viewerId = null) {

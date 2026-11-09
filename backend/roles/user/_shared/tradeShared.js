@@ -223,12 +223,25 @@ async function usersById(ids) {
   return new Map(users.map((u) => [String(u._id), u]));
 }
 
+async function countMutualCollaborations(viewerId, userId) {
+  if (!viewerId || String(viewerId) === String(userId)) return 0;
+  return Trade.countDocuments({
+    kind: "collaboration",
+    status: { $in: ["active", "completed"] },
+    $or: [
+      { requesterId: viewerId, responderId: userId },
+      { requesterId: userId, responderId: viewerId },
+    ],
+  });
+}
+
 function toDropView(drop, viewerId = null, { trade = null } = {}) {
   const isOwner = viewerId && String(viewerId) === String(drop.ownerId);
   const out = {
     _id: idStr(drop._id),
     ownerId: idStr(drop.ownerId),
     ownerHandle: drop.ownerHandle || "",
+    ownerName: drop.owner?.name || "",
     kind: drop.kind,
     visibility: drop.visibility,
     type: drop.type || "in_person",
@@ -450,6 +463,7 @@ module.exports = {
   otherParty,
   userBrief,
   usersById,
+  countMutualCollaborations,
   toDropView,
   toTapInView,
   toTradeView,

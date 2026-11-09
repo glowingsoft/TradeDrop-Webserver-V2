@@ -336,9 +336,11 @@ const userSchema = new mongoose.Schema(
             default: undefined,
             validate: {
               validator: (urls) =>
-                !urls || (urls.length >= 1 && urls.length <= MAX_PORTFOLIO_IMAGES &&
+                !urls ||
+                (urls.length >= 1 &&
+                  urls.length <= MAX_PORTFOLIO_IMAGES &&
                   urls.every((url) => typeof url === "string" && url.trim())),
-              message: "Portfolio items must have between 1 and 6 image URLs",
+              message: "Portfolio items must have between 1 and 6 Image URLs",
             },
           },
           title: { type: String, default: "" },

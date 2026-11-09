@@ -8,7 +8,7 @@ const { lookupUserCrafts, lookupUserRating } = require("@helperUtils/dbUtils/que
 const { getConnectionStatus, isBlockedBetween } = require("@helperUtils/connectionUtil");
 const { getFullImageUrl } = require("@helperUtils/imageHelper");
 const { portfolioItemView } = require("@helperUtils/portfolioUtil");
-const { roundCoord } = require("./tradeShared");
+const { roundCoord, countMutualCollaborations } = require("./tradeShared");
 const { httpError } = require("./serialize");
 
 async function latestConnectionsFor(userId, viewerId) {
@@ -121,14 +121,7 @@ async function getUserDetails(viewerId, targetId) {
       .sort({ completedAt: -1, _id: -1 })
       .limit(2)
       .lean(),
-    Trade.countDocuments({
-      kind: "collaboration",
-      status: { $in: ["active", "completed"] },
-      $or: [
-        { requesterId: viewerId, responderId: userId },
-        { requesterId: userId, responderId: viewerId },
-      ],
-    }),
+    countMutualCollaborations(viewerId, userId),
     Circle.find({ creatorId: userId, deletedAt: null })
       .select("_id name purpose category coverImage city privacy status createdAt updatedAt")
       .sort({ updatedAt: -1, _id: -1 })
