@@ -297,9 +297,27 @@ module.exports = {
       get: {
         tags: ["Drops"],
         summary: "Drop detail (API-013)",
+        description:
+          "mutualCollaborationCount counts active and completed collaborations between the viewer and the Drop owner. " +
+          "It is zero for anonymous viewers and the owner.",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
         responses: {
-          200: { description: "Other-user lat/lng rounded to ~3 decimals" },
+          200: {
+            description: "Drop detail; other-user lat/lng rounded to ~3 decimals",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    data: {
+                      type: "object",
+                      properties: { mutualCollaborationCount: { type: "integer", minimum: 0 } },
+                    },
+                  },
+                },
+              },
+            },
+          },
           404: { description: "Not found" },
         },
       },
