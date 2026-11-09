@@ -12,6 +12,7 @@ module.exports = {
     service.sendDirect("collaboration", req.user._id, req.body?.targetUserId, req.body || {}),
   ),
   listMyTapIns: list("tap_ins_fetched", (req) => service.listMyTapIns(req.user._id, direction(req), req)),
+  getTapIn: one(200, "tap_ins_fetched", (req) => service.getTapIn(req.user._id, req.params.id)),
   listAllTapIns: list("tap_ins_fetched", (req) => service.getAllTapIns({ req })),
   acceptTapIn: one(200, "tap_in_accepted", (req) => service.acceptTapIn(req.user._id, req.params.id)),
   declineTapIn: one(200, "tap_in_declined", (req) => service.declineTapIn(req.user._id, req.params.id)),

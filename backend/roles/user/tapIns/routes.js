@@ -9,6 +9,7 @@ router.post("/drops/:id/tap-ins", ...gated, c.createTapIn);
 router.post("/proposals", ...gated, c.sendProposal);
 router.post("/collaborations", ...gated, c.sendCollaboration);
 router.get("/tap-ins", ...adminOnly, c.listAllTapIns);
+router.get("/tap-ins/:id", ...gated, c.getTapIn);
 router.post("/tap-ins/:id/accept", ...gated, c.acceptTapIn);
 router.post("/tap-ins/:id/decline", ...gated, c.declineTapIn);
 router.post("/tap-ins/:id/withdraw", ...gated, c.withdrawTapIn);

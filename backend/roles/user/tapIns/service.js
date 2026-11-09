@@ -9,6 +9,7 @@ const Conversation = require("@backend/commonModules/chatModule/models/Conversat
 const { parsePaginationParams, generateMeta } = require("@helperUtils/responseUtil");
 const { isBlockedBetween, isActivelyConnected, recordCompletedTrade } = require("@helperUtils/connectionUtil");
 const { idStr, idStrOrNull, httpError } = require("../_shared/serialize");
+const { getFullImageUrl } = require("@helperUtils/imageHelper");
 const { sendUserNotifications } = require("@backend/controllers/communicationController");
 const {
   withTransaction,
@@ -334,6 +335,44 @@ async function listMyTapIns(userId, direction, req) {
   };
 }
 
+async function getTapIn(userId, tapInId) {
+  const id = toObjectId(tapInId, "tap_in_not_found");
+  const tapIn = await TapIn.findOne({ _id: id, deletedAt: null }).lean();
+  if (!tapIn) throw httpError(404, "tap_in_not_found");
+  if (String(tapIn.requesterId) !== String(userId) && String(tapIn.responderId) !== String(userId)) {
+    throw httpError(403, "access_denied");
+  }
+
+  const [requester, collaborationCount] = await Promise.all([
+    User.findOne({ _id: tapIn.requesterId, deletedAt: null })
+      .select("name handle profileIcon bio specialty areaLabel crafts")
+      .populate("crafts", "name image")
+      .lean(),
+    Trade.countDocuments({
+      kind: "collaboration",
+      status: { $in: ["active", "completed"] },
+      $or: [{ requesterId: tapIn.requesterId }, { responderId: tapIn.requesterId }],
+    }),
+  ]);
+  return {
+    ...toTapInView(tapIn),
+    requester: requester
+      ? {
+          ...userBrief(requester),
+          bio: requester.bio || "",
+          specialty: requester.specialty || "",
+          areaLabel: requester.areaLabel || "",
+          crafts: (requester.crafts || []).filter(Boolean).map((craft) => ({
+            _id: idStr(craft._id),
+            name: craft.name,
+            image: getFullImageUrl(craft.image),
+          })),
+          collaborationCount,
+        }
+      : null,
+  };
+}
+
 async function getAllTapIns({ req, filter = {} }) {
   const { page, limit } = parsePaginationParams(req);
   const { keyword, status, dropId, requesterId, responderId, timingChip } = req.query;
@@ -447,5 +486,6 @@ module.exports = {
   declineTapIn,
   acceptTapIn,
   listMyTapIns,
+  getTapIn,
   getAllTapIns,
 };
