@@ -186,7 +186,7 @@ async function declineTapIn(userId, tapInId) {
 
 async function acceptTapIn(userId, tapInId) {
   const id = toObjectId(tapInId, "tap_in_not_found");
-  const updated = await withTransaction(async (session) => {
+  const result = await withTransaction(async (session) => {
     const accepted = await TapIn.findOneAndUpdate(
       { _id: id, responderId: userId, status: "pending", deletedAt: null },
       { $set: { status: "accepted" } },
