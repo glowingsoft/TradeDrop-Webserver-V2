@@ -5,6 +5,7 @@ const { User } = require("@UsersModel");
 const { Drop } = require("@models/Drop");
 const { isBlockedBetween, getConnectionBetween } = require("@helperUtils/connectionUtil");
 const { parsePaginationParams, generateMeta } = require("@helperUtils/responseUtil");
+const { getFullImageUrl } = require("@helperUtils/imageHelper");
 const { sendUserNotifications } = require("@backend/controllers/communicationController");
 const { withTransaction } = require("../_shared/tradeShared");
 const { httpError, idStr } = require("../_shared/serialize");
@@ -84,6 +85,37 @@ async function listRequests(userId, direction, req) {
     ConnectionRequest.countDocuments(query),
   ]);
   return { data: items.map(requestView), meta: generateMeta(page, limit, total) };
+}
+
+async function listMyConnections(userId, req) {
+  const { page, limit } = parsePaginationParams(req);
+  const viewerId = new mongoose.Types.ObjectId(String(userId));
+  const [result] = await Connection.aggregate([
+    { $match: { status: "active", $or: [{ userA: viewerId }, { userB: viewerId }] } },
+    { $sort: { updatedAt: -1, _id: -1 } },
+    { $set: { peerId: { $cond: [{ $eq: ["$userA", viewerId] }, "$userB", "$userA"] } } },
+    { $lookup: { from: User.collection.name, localField: "peerId", foreignField: "_id", as: "peer" } },
+    { $unwind: "$peer" },
+    { $match: { "peer.deletedAt": null } },
+    {
+      $facet: {
+        items: [
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+          { $project: { _id: "$peer._id", name: "$peer.name", profileIcon: "$peer.profileIcon" } },
+        ],
+        total: [{ $count: "count" }],
+      },
+    },
+  ]);
+  return {
+    data: result.items.map((user) => ({
+      _id: idStr(user._id),
+      name: user.name || "",
+      profileIcon: getFullImageUrl(user.profileIcon),
+    })),
+    meta: generateMeta(page, limit, result.total[0]?.count || 0),
+  };
 }
 
 async function respond(userId, requestId, action) {
@@ -204,4 +236,4 @@ function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-module.exports = { createRequest, listRequests, respond, getNetwork };
+module.exports = { createRequest, listRequests, listMyConnections, respond, getNetwork };

@@ -914,7 +914,12 @@ module.exports = {
           { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
           { name: "limit", in: "query", schema: { type: "integer" } },
         ],
-        responses: { 200: { description: "Activity payload and pagination metadata" } },
+        responses: {
+          200: {
+            description:
+              "Activity payload and pagination metadata. In received, circleRequests.creatorId, eventRequests.userId and tapIns.requesterId contain _id, name and profileIcon; tapIns.dropId and latestRequests tap-in dropId contain _id, title and idea. In sent, tapIns.responderId contains _id, name and profileIcon, and tapIns.dropId contains _id, title and idea. Missing references are null.",
+          },
+        },
       },
     },
     "/connection-requests": {
@@ -973,6 +978,19 @@ module.exports = {
         security: [{ bearerAuth: [] }],
         parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string" } }],
         responses: { 200: { description: "Connection removed; personal messaging is closed" } },
+      },
+    },
+    "/me/connections": {
+      get: {
+        tags: ["Connections"],
+        summary: "List my active connections",
+        description: "Returns connected user profiles with _id, name and full profileIcon URL. Deleted or missing users are excluded.",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100 } },
+        ],
+        responses: { 200: { description: "Paginated connected user profiles and pagination metadata" } },
       },
     },
     "/me/network": {
