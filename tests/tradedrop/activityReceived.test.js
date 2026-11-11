@@ -148,12 +148,66 @@ describe("received activity connection requests", () => {
       assert.deepEqual(body.data.eventRequests[0].userId, {
         _id: String(eventUserId), name: "Guest", profileIcon: "https://cdn.example.com/guest.png",
       });
+      assert.equal(body.data.eventRequests[0].status, "pending");
       assert.equal(body.data.eventRequests[1].userId, null);
       assert.deepEqual(body.data.tapIns[0].dropId, { _id: String(dropId), title: "Drop", idea: "Idea" });
       assert.equal(body.data.tapIns[1].dropId, null);
       const latestTapIns = body.data.latestRequests.filter((request) => request.type === "tapIn");
       assert.deepEqual(latestTapIns[0].dropId, { _id: String(dropId), title: "Drop", idea: "Idea" });
       assert.equal(latestTapIns[1].dropId, null);
+    } finally {
+      for (const [model, method, original] of saved.reverse()) model[method] = original;
+    }
+  });
+
+  it("returns circle invitations received during circle creation", async () => {
+    const circleId = new mongoose.Types.ObjectId();
+    const creatorId = new mongoose.Types.ObjectId();
+    const invitation = {
+      _id: new mongoose.Types.ObjectId(),
+      circleId,
+      userId: viewerId,
+      invitedBy: creatorId,
+      status: "invited",
+    };
+    const saved = [];
+    const override = (model, method, replacement) => {
+      saved.push([model, method, model[method]]);
+      model[method] = replacement;
+    };
+    try {
+      override(CircleMember, "distinct", async (field, filter) =>
+        filter.userId === viewerId && filter.status === "invited" ? [circleId] : [],
+      );
+      override(CircleMember, "find", (filter) =>
+        query(filter.status === "invited" || filter.status?.$in?.includes("invited") ? [invitation] : []),
+      );
+      override(Circle, "find", (filter) =>
+        query(filter._id.$in.some((id) => String(id) === String(circleId))
+          ? [{ _id: circleId, name: "Circle", creatorId }]
+          : []),
+      );
+      override(Circle, "countDocuments", async () => 1);
+      override(ConnectionRequest, "find", () => query([]));
+      override(ConnectionRequest, "countDocuments", async () => 0);
+      override(TapIn, "find", () => query([]));
+      override(TapIn, "countDocuments", async () => 0);
+      override(TapIn, "aggregate", async () => []);
+      override(User, "find", () =>
+        query([{ _id: creatorId, name: "Creator", profileIcon: "creator.png" }]),
+      );
+
+      const { body } = await supertest(app).get("/activity/received").expect(200);
+      assert.equal(body.data.circleRequests.length, 1);
+      assert.deepEqual(body.data.circleRequests[0].creatorId, {
+        _id: String(creatorId),
+        name: "Creator",
+        profileIcon: "https://images.example.com/creator.png",
+      });
+      assert.equal(body.data.circleRequests[0].members[0].userId, String(viewerId));
+      assert.equal(body.data.circleRequests[0].members[0].status, "invited");
+      assert.equal(body.data.latestRequests[0].type, "circle");
+      assert.equal(body.data.latestRequests[0].requesterId._id, String(creatorId));
     } finally {
       for (const [model, method, original] of saved.reverse()) model[method] = original;
     }

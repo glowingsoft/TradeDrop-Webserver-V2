@@ -11,6 +11,9 @@ module.exports = {
   members: list("circle_members_fetched", (req) => service.listMembers(req.user._id, req.params.id, req)),
   update: one(200, "circle_updated", (req) => service.updateCircle(req.user._id, req.params.id, req.body || {})),
   join: one(200, "circle_join_requested", (req) => service.joinCircle(req.user._id, req.params.id)),
+  withdrawJoinRequest: one(200, "circle_request_withdrawn", (req) =>
+    service.withdrawJoinRequest(req.user._id, req.params.id),
+  ),
   approveMember: one(200, "circle_member_approved", (req) =>
     service.decideMembership(req.user._id, req.params.id, req.params.userId, true, isAdminUser(req.user)),
   ),

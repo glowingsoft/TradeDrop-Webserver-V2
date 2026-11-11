@@ -917,7 +917,7 @@ module.exports = {
         responses: {
           200: {
             description:
-              "Activity payload and pagination metadata. In received, circleRequests.creatorId, eventRequests.userId and tapIns.requesterId contain _id, name and profileIcon; tapIns.dropId and latestRequests tap-in dropId contain _id, title and idea. In sent, tapIns.responderId contains _id, name and profileIcon, and tapIns.dropId contains _id, title and idea. Missing references are null.",
+              "Activity payload and pagination metadata. Circle and Event requests include their current status; sent Circle requests include pending and withdrawn statuses. In received, circleRequests.creatorId, eventRequests.userId and tapIns.requesterId contain _id, name and profileIcon; tapIns.dropId and latestRequests tap-in dropId contain _id, title and idea. In sent, circleInvitations.recipientId and tapIns.responderId contain _id, name and profileIcon, and tapIns.dropId contains _id, title and idea. Missing references are null.",
           },
         },
       },
@@ -1110,7 +1110,7 @@ module.exports = {
     "/circles/{id}": {
       get: {
         tags: ["Circles"],
-        responses: { 200: { description: "Circle details, member roles, latest Event, and open member Drops" } },
+        responses: { 200: { description: "Circle details, member roles, two latest published Events, and open member Drops" } },
       },
       patch: {
         tags: ["Circles"],
@@ -1128,6 +1128,13 @@ module.exports = {
         tags: ["Circles"],
         security: [{ bearerAuth: [] }],
         responses: { 200: { description: "Join Open or request Approval membership" } },
+      },
+    },
+    "/circles/{id}/requests/withdraw": {
+      post: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        responses: { 200: { description: "Withdraw the caller's pending membership request" } },
       },
     },
     "/circles/{id}/leave": {

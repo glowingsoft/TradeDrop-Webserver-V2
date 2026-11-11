@@ -1076,13 +1076,13 @@ const hardDeleteAccount = async (req, res) => {
 };
 
 const socialAuth = async (req, res) => {
-  let { provider, socialId, email, name, deviceId, deviceType, timezone, userType } = req.body;
+  let { provider, socialId, email, name, deviceId, deviceType, timezone, userType = "user" } = req.body;
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
     const validationOptions = {
-      rawData: ["provider", "socialId", "name", "deviceId", "deviceType", "timezone", "userType"],
+      rawData: ["provider", "socialId", "name", "deviceId", "deviceType", "timezone"],
       enumFields: {
         provider: ["google", "facebook", "apple"], // Allowed values for provider
         userType: ["user", "coach"],

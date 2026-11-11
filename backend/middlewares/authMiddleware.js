@@ -53,7 +53,7 @@ const auth = async (req, res, next) => {
         });
       }
 
-      if (user.accountState.status === "restricted" || user.accountState.status === "suspended") {
+      if (user.accountState.status !== "active") {
         return sendResponse({
           res,
           statusCode: 403,

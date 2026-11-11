@@ -5,7 +5,11 @@ const circleMemberSchema = new mongoose.Schema(
     circleId: { type: mongoose.Schema.Types.ObjectId, ref: "Circle", required: true },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     role: { type: String, enum: ["member", "organizer"], default: "member" },
-    status: { type: String, enum: ["active", "pending", "invited", "declined", "left"], default: "active" },
+    status: {
+      type: String,
+      enum: ["active", "pending", "invited", "declined", "left", "withdrawn"],
+      default: "active",
+    },
     invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     joinedAt: { type: Date, default: null },
   },
