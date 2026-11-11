@@ -14,6 +14,7 @@ router.patch("/circles/:id", ...gated, c.update);
 router.delete("/circles/:id", ...gated, c.delete);
 router.post("/circles/:id/suspend", ...gated, c.toggleSuspend);
 router.post("/circles/:id/join", ...gated, c.join);
+router.post("/circles/:id/requests/withdraw", ...gated, c.withdrawJoinRequest);
 router.post("/circles/:id/leave", ...gated, c.leave);
 router.post("/circles/:id/members/:userId/approve", ...gated, c.approveMember);
 router.post("/circles/:id/members/:userId/decline", ...gated, c.declineMember);

@@ -56,6 +56,8 @@ describe("sent activity tap-ins", () => {
     });
     app.get("/activity/:tab", controller.get);
     replace(CircleMember, "distinct", async () => []);
+    replace(CircleMember, "find", () => query([]));
+    replace(CircleMember, "countDocuments", async () => 0);
     for (const model of [Circle, Event]) {
       replace(model, "find", () => query([]));
       replace(model, "countDocuments", async () => 0);
@@ -111,5 +113,71 @@ describe("sent activity tap-ins", () => {
     assert.equal(body.meta.tapIns.totalRecords, 2);
     assert.deepEqual(userFilter._id.$in, [String(missingId)]);
     assert.deepEqual(dropFilter._id.$in, [String(missingDropId)]);
+  });
+
+  it("returns circle invitations sent to invitees", async () => {
+    const circleId = new mongoose.Types.ObjectId();
+    const requestedCircleId = new mongoose.Types.ObjectId();
+    const inviteeId = new mongoose.Types.ObjectId();
+    const invitation = {
+      _id: new mongoose.Types.ObjectId(),
+      circleId,
+      userId: inviteeId,
+      invitedBy: viewerId,
+      status: "invited",
+    };
+    const saved = [];
+    const override = (model, method, replacement) => {
+      saved.push([model, method, model[method]]);
+      model[method] = replacement;
+    };
+    try {
+      override(CircleMember, "distinct", async (field, filter) =>
+        filter.invitedBy === viewerId && filter.status === "invited" ? [circleId] : [],
+      );
+      override(CircleMember, "find", (filter) =>
+        filter.status === "invited"
+          ? query([invitation])
+          : query([{ circleId: requestedCircleId, status: "withdrawn" }]),
+      );
+      override(CircleMember, "countDocuments", async () => 1);
+      override(Circle, "find", (filter) =>
+        query(filter._id.$in
+          .map((id) => {
+            if (String(id) === String(circleId)) return { _id: circleId, name: "Circle" };
+            if (String(id) === String(requestedCircleId)) return { _id: requestedCircleId, name: "Requested circle" };
+            return null;
+          })
+          .filter(Boolean)),
+      );
+      override(Circle, "countDocuments", async () => 1);
+      override(User, "find", (filter) =>
+        query(filter._id.$in.map((id) =>
+          String(id) === String(inviteeId)
+            ? { _id: inviteeId, name: "Invitee", profileIcon: "invitee.png" }
+            : { _id: id, name: "Other", profileIcon: "" },
+        )),
+      );
+
+      const { body } = await supertest(app).get("/activity/sent").expect(200);
+      assert.deepEqual(body.data.circleInvitations[0], {
+        circleId: String(circleId),
+        name: "Circle",
+        recipientId: {
+          _id: String(inviteeId),
+          name: "Invitee",
+          profileIcon: "https://images.example.com/invitee.png",
+        },
+        status: "invited",
+      });
+      assert.deepEqual(body.data.circleRequests[0], {
+        circleId: String(requestedCircleId),
+        name: "Requested circle",
+        status: "withdrawn",
+      });
+      assert.equal(body.meta.circleInvitations.totalRecords, 1);
+    } finally {
+      for (const [model, method, original] of saved.reverse()) model[method] = original;
+    }
   });
 });
