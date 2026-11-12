@@ -13,10 +13,20 @@ const { httpError, idStr } = require("../_shared/serialize");
 const COOLDOWN_MS = 30 * 86400000;
 
 function requestView(request) {
+  const requester = request.requesterId;
+  const recipient = request.recipientId;
+  const userView = (user) =>
+    user && typeof user === "object" && user._id && ("name" in user || "profileIcon" in user)
+      ? {
+          _id: idStr(user._id),
+          name: user.name || "",
+          profileIcon: getFullImageUrl(user.profileIcon),
+        }
+      : idStr(user);
   return {
     _id: idStr(request._id),
-    requesterId: idStr(request.requesterId),
-    recipientId: idStr(request.recipientId),
+    requesterId: userView(requester),
+    recipientId: userView(recipient),
     note: request.note || "",
     status: request.status,
     respondedAt: request.respondedAt || null,
@@ -159,7 +169,11 @@ async function respond(userId, requestId, action) {
     recipientIds: [recipientId],
     sender: userId,
     title:
-      action === "accept" ? "Connection request accepted" : action === "decline" ? "Connection request declined" : "Connection request withdrawn",
+      action === "accept"
+        ? "Connection request accepted"
+        : action === "decline"
+          ? "Connection request declined"
+          : "Connection request withdrawn",
     body:
       action === "accept"
         ? "Your connection request was accepted."
@@ -182,6 +196,7 @@ async function getNetwork(userId, req) {
   const [connections, pendingRequests] = await Promise.all([
     Connection.find(connectionsQuery).sort({ updatedAt: -1 }).limit(5).lean(),
     ConnectionRequest.find({ $or: [{ requesterId: userId }, { recipientId: userId }], status: "pending" })
+      .populate("requesterId recipientId", "name profileIcon")
       .sort({ createdAt: -1 })
       .limit(100)
       .lean(),
@@ -195,9 +210,17 @@ async function getNetwork(userId, req) {
   const [users, circles, saved, openDrops] = await Promise.all([
     User.find({
       _id: { $in: peerIds },
-      ...(keyword ? { $or: [{ name: { $regex: escapeRegex(keyword), $options: "i" } }, { handle: { $regex: escapeRegex(keyword), $options: "i" } }] } : {}),
+      ...(keyword
+        ? {
+            $or: [
+              { name: { $regex: escapeRegex(keyword), $options: "i" } },
+              { handle: { $regex: escapeRegex(keyword), $options: "i" } },
+            ],
+          }
+        : {}),
     })
-      .select("name handle profileIcon")
+      .select("name handle profileIcon crafts")
+      .populate("crafts", "name image")
       .lean(),
     UserCircle.find({ _id: { $in: circleIds }, deletedAt: null })
       .select("name purpose privacy city")
@@ -221,13 +244,39 @@ async function getNetwork(userId, req) {
   const byId = new Map(users.map((user) => [String(user._id), user]));
   return {
     latestConnections: connections
-      .map((connection) => byId.get(String(String(connection.userA) === String(userId) ? connection.userB : connection.userA)))
-      .filter(Boolean),
+      .map((connection) =>
+        byId.get(String(String(connection.userA) === String(userId) ? connection.userB : connection.userA)),
+      )
+      .filter(Boolean)
+      .map((user) => ({
+        ...user,
+        _id: idStr(user._id),
+        profileIcon: getFullImageUrl(user.profileIcon),
+        crafts: (user.crafts || []).filter(Boolean).map((craft) => ({
+          _id: idStr(craft._id),
+          name: craft.name,
+          image: getFullImageUrl(craft.image),
+        })),
+      })),
     pendingRequests: pendingRequests.map(requestView),
-    circles: circles.filter((circle) => !keyword || `${circle.name} ${circle.purpose} ${circle.city}`.toLowerCase().includes(keyword.toLowerCase())),
-    openDrops: openDrops.filter((drop) => !keyword || String(drop.title || "").toLowerCase().includes(keyword.toLowerCase())),
+    circles: circles.filter(
+      (circle) =>
+        !keyword || `${circle.name} ${circle.purpose} ${circle.city}`.toLowerCase().includes(keyword.toLowerCase()),
+    ),
+    openDrops: openDrops.filter(
+      (drop) =>
+        !keyword ||
+        String(drop.title || "")
+          .toLowerCase()
+          .includes(keyword.toLowerCase()),
+    ),
     savedPeople: saved
-      .filter((favorite) => favorite.target && (!keyword || `${favorite.target.name} ${favorite.target.handle}`.toLowerCase().includes(keyword.toLowerCase())))
+      .filter(
+        (favorite) =>
+          favorite.target &&
+          (!keyword ||
+            `${favorite.target.name} ${favorite.target.handle}`.toLowerCase().includes(keyword.toLowerCase())),
+      )
       .map((favorite) => favorite.target),
   };
 }

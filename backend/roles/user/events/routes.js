@@ -18,9 +18,5 @@ router.post("/events/:id/rsvp/cancel", ...gated, c.cancelRsvp);
 router.post("/events/:id/rsvp/:userId/approve", ...gated, c.approveRsvp);
 router.post("/events/:id/rsvp/:userId/decline", ...gated, c.declineRsvp);
 router.post("/circles/:circleId/event-suggestions", ...gated, c.suggest);
-router.get("/circles/:circleId/event-suggestions", ...gated, c.suggestions);
-router.post("/events/:id/suggestion/approve", ...gated, c.approveSuggestion);
-router.post("/events/:id/suggestion/decline", ...gated, c.declineSuggestion);
-router.delete("/events/:id/suggestion", ...gated, c.deleteSuggestion);
 
 module.exports = router;

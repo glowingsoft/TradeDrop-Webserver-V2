@@ -1,4 +1,5 @@
 const { randomBytes } = require("crypto");
+const mongoose = require("mongoose");
 const repo = require("../auth/authRepository");
 const catalogRepo = require("../catalog/mongoCatalogRepository");
 const badgesService = require("../../admin/badges/badgesService");
@@ -6,6 +7,11 @@ const { checkAndAwardBadges } = require("../../admin/badges/badgeEngine");
 const { UserBadge } = require("../../../models/UserBadge");
 const { User } = require("@UsersModel");
 const { Drop } = require("@models/Drop");
+const Connection = require("@models/Connection");
+const Circle = require("@models/Circle");
+const CircleMember = require("@models/CircleMember");
+const BlockedUser = require("@models/BlockedUser");
+const { Favorites } = require("@backend/commonModules/favorites/Favorite");
 const { getFullImageUrl } = require("@helperUtils/imageHelper");
 const { MAX_PORTFOLIO_IMAGES, portfolioItemView } = require("@helperUtils/portfolioUtil");
 
@@ -46,6 +52,7 @@ function selfProfile(user) {
       language: user.language || "en",
       links: user.links || [],
       specialty: user.specialty || "",
+      openToTrade: user.openToTrade !== false,
     },
     accountState: {
       userType: user.accountState?.userType || "user",
@@ -79,17 +86,59 @@ function selfProfile(user) {
 
 async function getMe(userId) {
   const user = await requireUser(userId);
+  const userObjectId = new mongoose.Types.ObjectId(String(user._id));
   const profile = selfProfile(user);
-  profile.openDropIds = (
-    await Drop.find({
+  const [
+    openDrops,
+    organizerCircleIds,
+    memberCircleIds,
+    connectionCount,
+    latestConnections,
+    savedUserCount,
+    blockedUserCount,
+  ] = await Promise.all([
+    Drop.find({
       ownerId: user._id,
       status: "open",
       deletedAt: null,
       $or: [{ expiresAt: null }, { expiresAt: { $exists: false } }, { expiresAt: { $gt: new Date() } }],
     })
       .select("_id")
-      .lean()
-  ).map((drop) => String(drop._id));
+      .lean(),
+    CircleMember.distinct("circleId", { userId: user._id, status: "active", role: "organizer" }),
+    CircleMember.distinct("circleId", { userId: user._id, status: "active", role: "member" }),
+    Connection.countDocuments({ status: "active", $or: [{ userA: user._id }, { userB: user._id }] }),
+    Connection.aggregate([
+      { $match: { status: "active", $or: [{ userA: userObjectId }, { userB: userObjectId }] } },
+      { $sort: { updatedAt: -1, _id: -1 } },
+      { $set: { peerId: { $cond: [{ $eq: ["$userA", userObjectId] }, "$userB", "$userA"] } } },
+      { $lookup: { from: User.collection.name, localField: "peerId", foreignField: "_id", as: "peer" } },
+      { $unwind: "$peer" },
+      { $match: { "peer.deletedAt": null } },
+      { $limit: 4 },
+      { $project: { _id: "$peer._id", name: "$peer.name", profileIcon: "$peer.profileIcon" } },
+    ]),
+    Favorites.countDocuments({ user: user._id }),
+    BlockedUser.countDocuments({ blockedBy: user._id }),
+  ]);
+  const cricle = {
+    total: organizerCircleIds.length + memberCircleIds.length,
+    organizer: organizerCircleIds.length,
+    member: memberCircleIds.length,
+  };
+  const network = {
+    total: connectionCount,
+    latest: latestConnections.map((connection) => ({
+      _id: String(connection._id),
+      name: connection.name || "",
+      profileIcon: connection.profileIcon ? getFullImageUrl(connection.profileIcon) : "",
+    })),
+  };
+  profile.openDropIds = openDrops.map((drop) => String(drop._id));
+  profile.circle = cricle;
+  profile.network = network;
+  profile.savedUserCount = savedUserCount;
+  profile.blockedUserCount = blockedUserCount;
 
   checkAndAwardBadges(userId, "founding_member").catch((err) => console.error("[checkAndAwardBadges] failed:", err));
 
@@ -268,8 +317,12 @@ async function patchMe(userId, body = {}) {
 
 function parsePortfolioImages(body) {
   const values = body.imageUrls;
-  if (!Array.isArray(values) || values.length < 1 || values.length > MAX_PORTFOLIO_IMAGES ||
-      values.some((value) => typeof value !== "string" || !value.trim())) {
+  if (
+    !Array.isArray(values) ||
+    values.length < 1 ||
+    values.length > MAX_PORTFOLIO_IMAGES ||
+    values.some((value) => typeof value !== "string" || !value.trim())
+  ) {
     throw AppError("portfolio_image_urls_invalid", 400);
   }
   return values.map((value) => value.trim());
@@ -326,8 +379,11 @@ async function patchPortfolioItem(userId, itemId, body = {}) {
   if (body.title !== undefined) {
     if (typeof body.title !== "string") throw AppError("portfolio_title_invalid", 400);
     const title = body.title.trim();
-    if ((user.portfolioItems || []).some((entry) =>
-      String(entry._id) !== String(itemId) && entry.title?.toLowerCase() === title.toLowerCase())) {
+    if (
+      (user.portfolioItems || []).some(
+        (entry) => String(entry._id) !== String(itemId) && entry.title?.toLowerCase() === title.toLowerCase(),
+      )
+    ) {
       throw AppError("portfolio_item_duplicate", 400);
     }
     patch["portfolioItems.$.title"] = title;

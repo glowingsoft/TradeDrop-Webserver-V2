@@ -64,10 +64,12 @@ describe("received activity connection requests", () => {
     replace(ConnectionRequest, "countDocuments", async (filter) => matching(filter).length);
     replace(CircleMember, "distinct", async () => []);
     replace(CircleMember, "find", () => query([]));
+    replace(CircleMember, "countDocuments", async () => 0);
     for (const model of [Circle, Event, TapIn, Drop]) {
       replace(model, "find", () => query([]));
       replace(model, "countDocuments", async () => 0);
     }
+    replace(Event, "aggregate", async () => [{ items: [], total: [] }]);
     replace(TapIn, "aggregate", async () => []);
     replace(User, "find", (filter) => {
       assert.deepEqual(filter._id.$in, [String(requesterId)]);
@@ -126,7 +128,13 @@ describe("received activity connection requests", () => {
           { userId: viewerId, status: "pending" },
         ],
       }]));
-      override(Event, "countDocuments", async () => 1);
+      override(Event, "aggregate", async () => [{
+        items: [
+          { requestId: `${eventId}:${eventUserId}`, eventId: String(eventId), name: "Event", requesterId: eventUserId, status: "pending" },
+          { requestId: `${eventId}:${missingUserId}`, eventId: String(eventId), name: "Event", requesterId: missingUserId, status: "pending" },
+        ],
+        total: [{ count: 2 }],
+      }]);
       override(TapIn, "find", () => query([
         { _id: new mongoose.Types.ObjectId(), dropId, requesterId, createdAt: new Date("2026-01-02") },
         { _id: new mongoose.Types.ObjectId(), dropId: missingDropId, requesterId, createdAt: new Date("2026-01-01") },
@@ -142,14 +150,11 @@ describe("received activity connection requests", () => {
       ]));
 
       const { body } = await supertest(app).get("/activity/received").expect(200);
-      assert.deepEqual(body.data.circleRequests[0].creatorId, {
-        _id: String(creatorId), name: "Creator", profileIcon: "https://images.example.com/creator.png",
-      });
-      assert.deepEqual(body.data.eventRequests[0].userId, {
+      assert.deepEqual(body.data.eventRequests[0].requesterId, {
         _id: String(eventUserId), name: "Guest", profileIcon: "https://cdn.example.com/guest.png",
       });
       assert.equal(body.data.eventRequests[0].status, "pending");
-      assert.equal(body.data.eventRequests[1].userId, null);
+      assert.equal(body.data.eventRequests[1].requesterId, null);
       assert.deepEqual(body.data.tapIns[0].dropId, { _id: String(dropId), title: "Drop", idea: "Idea" });
       assert.equal(body.data.tapIns[1].dropId, null);
       const latestTapIns = body.data.latestRequests.filter((request) => request.type === "tapIn");
@@ -169,6 +174,7 @@ describe("received activity connection requests", () => {
       userId: viewerId,
       invitedBy: creatorId,
       status: "invited",
+      createdAt: new Date("2026-01-02"),
     };
     const saved = [];
     const override = (model, method, replacement) => {
@@ -182,6 +188,7 @@ describe("received activity connection requests", () => {
       override(CircleMember, "find", (filter) =>
         query(filter.status === "invited" || filter.status?.$in?.includes("invited") ? [invitation] : []),
       );
+      override(CircleMember, "countDocuments", async (filter) => filter.status === "invited" ? 1 : 0);
       override(Circle, "find", (filter) =>
         query(filter._id.$in.some((id) => String(id) === String(circleId))
           ? [{ _id: circleId, name: "Circle", creatorId }]
@@ -198,16 +205,120 @@ describe("received activity connection requests", () => {
       );
 
       const { body } = await supertest(app).get("/activity/received").expect(200);
-      assert.equal(body.data.circleRequests.length, 1);
-      assert.deepEqual(body.data.circleRequests[0].creatorId, {
-        _id: String(creatorId),
-        name: "Creator",
-        profileIcon: "https://images.example.com/creator.png",
+      assert.deepEqual(body.data.circleInvitations[0], {
+        requestId: String(invitation._id),
+        circleId: String(circleId),
+        circleName: "Circle",
+        inviterId: {
+          _id: String(creatorId),
+          name: "Creator",
+          profileIcon: "https://images.example.com/creator.png",
+        },
+        status: "invited",
+        createdAt: invitation.createdAt.toISOString(),
       });
-      assert.equal(body.data.circleRequests[0].members[0].userId, String(viewerId));
-      assert.equal(body.data.circleRequests[0].members[0].status, "invited");
-      assert.equal(body.data.latestRequests[0].type, "circle");
+      assert.equal(body.data.latestRequests[0].type, "circle_invitation");
       assert.equal(body.data.latestRequests[0].requesterId._id, String(creatorId));
+    } finally {
+      for (const [model, method, original] of saved.reverse()) model[method] = original;
+    }
+  });
+
+  it("includes the requester in members for received circle join requests", async () => {
+    const circleId = new mongoose.Types.ObjectId();
+    const creatorId = new mongoose.Types.ObjectId();
+    const joinerId = new mongoose.Types.ObjectId();
+    const joinRequest = {
+      _id: new mongoose.Types.ObjectId(),
+      circleId,
+      userId: joinerId,
+      role: "member",
+      status: "pending",
+      createdAt: new Date("2026-01-04"),
+    };
+    const circle = { _id: circleId, name: "New Bridal", creatorId };
+    const saved = [];
+    const override = (model, method, replacement) => {
+      saved.push([model, method, model[method]]);
+      model[method] = replacement;
+    };
+    try {
+      override(CircleMember, "distinct", async (_field, filter) =>
+        filter.userId === viewerId && filter.status === "active" && filter.role === "organizer" ? [circleId] : [],
+      );
+      override(CircleMember, "find", (filter) =>
+        query(filter.status === "pending" ? [joinRequest] : []),
+      );
+      override(CircleMember, "countDocuments", async (filter) => filter.status === "pending" ? 1 : 0);
+      override(Circle, "find", () => query([circle]));
+      override(Circle, "countDocuments", async () => 1);
+      override(User, "find", () =>
+        query([
+          { _id: creatorId, name: "Creator", profileIcon: "creator.png" },
+          { _id: joinerId, name: "Joiner", profileIcon: "joiner.png" },
+        ]),
+      );
+
+      const { body } = await supertest(app).get("/activity/received").expect(200);
+      assert.deepEqual(body.data.circleJoinRequests[0], {
+        requestId: String(joinRequest._id),
+        circleId: String(circleId),
+        circleName: "New Bridal",
+        requesterId: {
+          _id: String(joinerId),
+          name: "Joiner",
+          profileIcon: "https://images.example.com/joiner.png",
+        },
+        status: "pending",
+        createdAt: joinRequest.createdAt.toISOString(),
+      });
+      assert.equal(body.meta.circleJoinRequests.totalRecords, 1);
+    } finally {
+      for (const [model, method, original] of saved.reverse()) model[method] = original;
+    }
+  });
+
+  it("supports multiple event requests separately", async () => {
+    const circleId = new mongoose.Types.ObjectId();
+    const creatorId = new mongoose.Types.ObjectId();
+    const firstUserId = new mongoose.Types.ObjectId();
+    const secondUserId = new mongoose.Types.ObjectId();
+    const eventId = new mongoose.Types.ObjectId();
+    const saved = [];
+    const override = (model, method, replacement) => {
+      saved.push([model, method, model[method]]);
+      model[method] = replacement;
+    };
+    try {
+      override(CircleMember, "distinct", async (_field, filter) =>
+        filter.role === "organizer" ? [circleId] : [],
+      );
+      override(Circle, "find", (filter) => query(
+        filter._id.$in.some((id) => String(id) === String(circleId))
+          ? [{ _id: circleId, name: "Circle", creatorId }]
+          : [],
+      ));
+      override(CircleMember, "find", () => query([]));
+      override(CircleMember, "countDocuments", async () => 0);
+      override(Event, "aggregate", async () => [{
+        items: [
+          { requestId: `${eventId}:${firstUserId}`, eventId: String(eventId), name: "Event", requesterId: firstUserId, status: "pending" },
+          { requestId: `${eventId}:${secondUserId}`, eventId: String(eventId), name: "Event", requesterId: secondUserId, status: "pending" },
+        ],
+        total: [{ count: 2 }],
+      }]);
+      override(User, "find", () => query([
+        { _id: creatorId, name: "Creator", profileIcon: "creator.png" },
+        { _id: firstUserId, name: "First", profileIcon: "first.png" },
+        { _id: secondUserId, name: "Second", profileIcon: "second.png" },
+      ]));
+      const { body } = await supertest(app).get("/activity/received").expect(200);
+      assert.equal(body.data.eventRequests.length, 2);
+      assert.equal(body.data.eventRequests[0].requestId, `${eventId}:${firstUserId}`);
+      assert.equal(body.data.eventRequests[0].requesterId._id, String(firstUserId));
+      assert.equal(body.data.eventRequests[1].requestId, `${eventId}:${secondUserId}`);
+      assert.equal(body.data.eventRequests[1].requesterId._id, String(secondUserId));
+      assert.equal(body.meta.eventRequests.totalRecords, 2);
     } finally {
       for (const [model, method, original] of saved.reverse()) model[method] = original;
     }

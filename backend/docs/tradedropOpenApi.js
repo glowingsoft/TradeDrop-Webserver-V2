@@ -538,7 +538,12 @@ module.exports = {
         tags: ["Profile"],
         summary: "Self profile (API-020)",
         security: [{ bearerAuth: [] }],
-        responses: { 200: { description: "Full self profile" } },
+        responses: {
+          200: {
+            description:
+              "Full self profile, including organizerCircleCount, total active connectionCount, up to four latest connection profiles, savedUserCount, and blockedUserCount.",
+          },
+        },
       },
       patch: {
         tags: ["Profile"],
@@ -895,13 +900,19 @@ module.exports = {
     "/for-you": {
       get: {
         tags: ["Radar"],
-        summary: "Nearby Circles, Events, and Drops; set anywhere=true to remove the location restriction",
+        summary: "Nearby Circles, Events, and People; set anywhere=true to remove the location restriction",
+        security: [{ bearerAuth: [] }],
         parameters: [
           { name: "lat", in: "query", schema: { type: "number" } },
           { name: "lng", in: "query", schema: { type: "number" } },
           { name: "anywhere", in: "query", schema: { type: "boolean" } },
         ],
-        responses: { 200: { description: "Paginated discovery results" } },
+        responses: {
+          200: {
+            description:
+              "Paginated circles, events, and people. People include connection status and whether a connection request can be sent.",
+          },
+        },
       },
     },
     "/activity/{tab}": {
@@ -917,7 +928,7 @@ module.exports = {
         responses: {
           200: {
             description:
-              "Activity payload and pagination metadata. Circle and Event requests include their current status; sent Circle requests include pending and withdrawn statuses. In received, circleRequests.creatorId, eventRequests.userId and tapIns.requesterId contain _id, name and profileIcon; tapIns.dropId and latestRequests tap-in dropId contain _id, title and idea. In sent, circleInvitations.recipientId and tapIns.responderId contain _id, name and profileIcon, and tapIns.dropId contains _id, title and idea. Missing references are null.",
+              "Activity payload and pagination metadata. Received and sent Circle activity uses separate circleJoinRequests and circleInvitations arrays; each entry identifies one membership request/invite with requestId, circleId, status and participant details. eventRequests contains one entry per RSVP with eventId, requestId, status and requesterId. In received, circleJoinRequests.requesterId, circleInvitations.inviterId, eventRequests.requesterId and tapIns.requesterId contain _id, name and profileIcon; in sent, circleInvitations.recipientId and tapIns.responderId contain _id, name and profileIcon. tapIns.dropId and latestRequests tap-in dropId contain _id, title and idea. Missing references are null.",
           },
         },
       },
@@ -997,7 +1008,12 @@ module.exports = {
       get: {
         tags: ["Connections"],
         security: [{ bearerAuth: [] }],
-        responses: { 200: { description: "Latest five connections, pending requests, Circles, open Drops, and saved people" } },
+        responses: {
+          200: {
+            description:
+              "Latest five connections include populated crafts; pending request requesterId and recipientId include _id, name, and profileIcon. Also returns Circles, open Drops, and saved people.",
+          },
+        },
       },
     },
     "/me/collaborations": {
@@ -1110,7 +1126,12 @@ module.exports = {
     "/circles/{id}": {
       get: {
         tags: ["Circles"],
-        responses: { 200: { description: "Circle details, member roles, two latest published Events, and open member Drops" } },
+        responses: {
+          200: {
+            description:
+              "Circle details, viewerMembership (null or the caller's membership ID, role, status and joinedAt), member roles, two latest published Events, up to two newest active polls in latestPolls (including myVote), and open member Drops. Existing polls and poll fields are unchanged.",
+          },
+        },
       },
       patch: {
         tags: ["Circles"],
@@ -1207,7 +1228,10 @@ module.exports = {
       post: {
         tags: ["Circles"],
         security: [{ bearerAuth: [] }],
-        responses: { 201: { description: "Create a Circle poll; up to three can be active, with a default two-day duration" } },
+        responses: {
+          201: { description: "Create a Circle poll; only one can be active, with a default two-day duration" },
+          409: { description: "The Circle already has an active poll" },
+        },
       },
     },
     "/circles/{id}/polls/{pollId}/vote": {
@@ -1322,41 +1346,25 @@ module.exports = {
       },
     },
     "/circles/{circleId}/event-suggestions": {
-      get: {
-        tags: ["Events"],
-        security: [{ bearerAuth: [] }],
-        parameters: [{ name: "circleId", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "Organizer-visible Event suggestions" } },
-      },
       post: {
         tags: ["Events"],
         security: [{ bearerAuth: [] }],
         parameters: [{ name: "circleId", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 201: { description: "Submit an Event suggestion for organizer approval" } },
-      },
-    },
-    "/events/{id}/suggestion/approve": {
-      post: {
-        tags: ["Events"],
-        security: [{ bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "Organizer approves an Event suggestion as a draft" } },
-      },
-    },
-    "/events/{id}/suggestion/decline": {
-      post: {
-        tags: ["Events"],
-        security: [{ bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "Organizer declines an Event suggestion" } },
-      },
-    },
-    "/events/{id}/suggestion": {
-      delete: {
-        tags: ["Events"],
-        security: [{ bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "Organizer removes an Event suggestion" } },
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["name"],
+                properties: { name: { type: "string", maxLength: 160 } },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: "Send the Circle creator a notification with the suggested Event name" },
+        },
       },
     },
     "/conversations": {

@@ -4686,144 +4686,15 @@
                         "event-suggestions"
                       ]
                     },
-                    "description": "Suggestions require organizer approval before publication.",
+                    "description": "Suggest an Event name to the Circle creator.",
                     "body": {
                       "mode": "raw",
-                      "raw": "{\n  \"name\": \"Community Photo Walk\",\n  \"purpose\": \"Member-suggested event.\"\n}",
+                      "raw": "{\n  \"name\": \"Community Photo Walk\"\n}",
                       "options": {
                         "raw": {
                           "language": "json"
                         }
                       }
-                    }
-                  },
-                  "response": [],
-                  "event": [
-                    {
-                      "listen": "test",
-                      "script": {
-                        "type": "text/javascript",
-                        "exec": [
-                          "try {",
-                          "    var response = pm.response.json();",
-                          "    var value = response && response.data;",
-                          "    value = value && value._id;",
-                          "    if (value) { pm.collectionVariables.set('eventId', String(value)); pm.environment.set('eventId', String(value)); }",
-                          "} catch (error) { console.log(\"Could not capture ${variable}\", error); }"
-                        ]
-                      }
-                    }
-                  ]
-                },
-                {
-                  "name": "List Event suggestions",
-                  "request": {
-                    "method": "GET",
-                    "header": [],
-                    "url": {
-                      "raw": "{{url}}circles/{{circleId}}/event-suggestions?page=1&limit=20",
-                      "host": [
-                        "{{url}}circles"
-                      ],
-                      "path": [
-                        "{{circleId}}",
-                        "event-suggestions"
-                      ],
-                      "query": [
-                        {
-                          "key": "page",
-                          "value": "1"
-                        },
-                        {
-                          "key": "limit",
-                          "value": "20"
-                        }
-                      ]
-                    }
-                  },
-                  "response": []
-                },
-                {
-                  "name": "Approve Event suggestion",
-                  "request": {
-                    "method": "POST",
-                    "header": [
-                      {
-                        "key": "Content-Type",
-                        "value": "application/json"
-                      }
-                    ],
-                    "url": {
-                      "raw": "{{url}}events/{{eventId}}/suggestion/approve",
-                      "host": [
-                        "{{url}}events"
-                      ],
-                      "path": [
-                        "{{eventId}}",
-                        "suggestion",
-                        "approve"
-                      ]
-                    },
-                    "description": "Approval creates an editable Event draft.",
-                    "body": {
-                      "mode": "raw",
-                      "raw": "{}",
-                      "options": {
-                        "raw": {
-                          "language": "json"
-                        }
-                      }
-                    }
-                  },
-                  "response": []
-                },
-                {
-                  "name": "Decline Event suggestion",
-                  "request": {
-                    "method": "POST",
-                    "header": [
-                      {
-                        "key": "Content-Type",
-                        "value": "application/json"
-                      }
-                    ],
-                    "url": {
-                      "raw": "{{url}}events/{{eventId}}/suggestion/decline",
-                      "host": [
-                        "{{url}}events"
-                      ],
-                      "path": [
-                        "{{eventId}}",
-                        "suggestion",
-                        "decline"
-                      ]
-                    },
-                    "body": {
-                      "mode": "raw",
-                      "raw": "{}",
-                      "options": {
-                        "raw": {
-                          "language": "json"
-                        }
-                      }
-                    }
-                  },
-                  "response": []
-                },
-                {
-                  "name": "Delete Event suggestion",
-                  "request": {
-                    "method": "DELETE",
-                    "header": [],
-                    "url": {
-                      "raw": "{{url}}events/{{eventId}}/suggestion",
-                      "host": [
-                        "{{url}}events"
-                      ],
-                      "path": [
-                        "{{eventId}}",
-                        "suggestion"
-                      ]
                     }
                   },
                   "response": []

@@ -15,18 +15,6 @@ module.exports = {
   update: one(200, "event_updated", (req) => service.updateEvent(req.user._id, req.params.id, req.body || {})),
   publish: one(200, "event_published", (req) => service.publishEvent(req.user._id, req.params.id, isAdminUser(req.user))),
   cancel: one(200, "event_cancelled", (req) => service.cancelEvent(req.user._id, req.params.id, isAdminUser(req.user))),
-  suggestions: list("event_suggestions_fetched", (req) =>
-    service.listSuggestions(req.user._id, req.params.circleId, req),
-  ),
-  approveSuggestion: one(200, "event_suggestion_approved", (req) =>
-    service.reviewSuggestion(req.user._id, req.params.id, true, isAdminUser(req.user)),
-  ),
-  declineSuggestion: one(200, "event_suggestion_declined", (req) =>
-    service.reviewSuggestion(req.user._id, req.params.id, false, isAdminUser(req.user)),
-  ),
-  deleteSuggestion: one(200, "event_suggestion_deleted", (req) =>
-    service.removeSuggestion(req.user._id, req.params.id, isAdminUser(req.user)),
-  ),
   rsvp: one(200, "event_rsvp_saved", (req) =>
     service.rsvp(req.user._id, req.params.id, req.body?.showToParticipants === true),
   ),

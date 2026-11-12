@@ -154,30 +154,22 @@ async function createEvent(userId, body = {}) {
 async function suggestEvent(userId, circleId, body = {}) {
   const circle = await loadCircle(circleId);
   if (!(await activeMember(circle, userId))) throw httpError(403, "circle_membership_required");
-  const fields = validateEventData(body);
-  if (!fields.name) throw httpError(400, "event_name_required");
-  const [event] = await Event.create([
-    {
-      ...fields,
-      circleId: circle._id,
-      creatorId: userId,
-      suggestedBy: userId,
-      suggestionStatus: "pending",
-      status: "draft",
-    },
-  ]);
-  const organizers = (await organizerIds(circle._id)).filter((id) => id !== String(userId));
-  if (organizers.length) {
+  const eventName = String(body.name || "").trim();
+  if (!eventName) throw httpError(400, "event_name_required");
+  if (eventName.length > 160) throw httpError(400, "event_name_invalid");
+  const creatorId = String(circle.creatorId);
+  const notificationSent = creatorId !== String(userId);
+  if (notificationSent) {
     sendUserNotifications({
-      recipientIds: organizers,
+      recipientIds: [creatorId],
       sender: userId,
       title: "Event suggestion",
-      body: "A Circle member suggested an Event.",
-      data: { type: "event", objectType: "event" },
-      objectId: event._id,
+      body: `A Circle member suggested "${eventName}" for ${circle.name}.`,
+      data: { type: "event_suggestion", objectType: "circle", eventName },
+      objectId: circle._id,
     });
   }
-  return eventView(event);
+  return { circleId: idStr(circle._id), eventName, notificationSent };
 }
 
 function eventView(event, { viewerId = null, attendeeDetails = false, allAttendees = false } = {}) {
@@ -185,8 +177,6 @@ function eventView(event, { viewerId = null, attendeeDetails = false, allAttende
     _id: idStr(event._id),
     circleId: idStr(event.circleId),
     creatorId: idStr(event.creatorId),
-    suggestedBy: event.suggestedBy ? idStr(event.suggestedBy) : null,
-    approvedBy: event.approvedBy ? idStr(event.approvedBy) : null,
     name: event.name,
     purpose: event.purpose || "",
     date: event.date || null,
@@ -200,7 +190,6 @@ function eventView(event, { viewerId = null, attendeeDetails = false, allAttende
     joining: event.joining,
     capacity: event.capacity ?? null,
     status: event.status,
-    suggestionStatus: event.suggestionStatus || null,
     rsvpCount: (event.rsvps || []).filter((rsvp) => rsvp.status === "going").length,
     createdAt: event.createdAt,
     updatedAt: event.updatedAt,
@@ -236,8 +225,6 @@ async function publishEvent(userId, eventId, isAdmin = false) {
   if (!event) throw httpError(404, "event_not_found");
   const circle = await loadCircle(event.circleId);
   if (!isAdmin) await requireOrganizer(circle, userId);
-  if (event.suggestionStatus === "pending") throw httpError(409, "event_suggestion_requires_approval");
-  if (event.suggestionStatus === "declined") throw httpError(409, "invalid_status_transition");
   if (event.status === "published") return eventView(event);
   validateEventData(event.toObject(), { publishing: true });
   await assertEventCapacity(event.creatorId, event._id);
@@ -287,58 +274,6 @@ async function cancelEvent(userId, eventId, isAdmin = false) {
     });
   }
   return eventView(event);
-}
-
-async function reviewSuggestion(userId, eventId, approve, isAdmin = false) {
-  const event = await Event.findById(objectId(eventId));
-  if (!event) throw httpError(404, "event_not_found");
-  const circle = await loadCircle(event.circleId);
-  if (!isAdmin) await requireOrganizer(circle, userId);
-  if (event.suggestionStatus !== "pending") throw httpError(409, "invalid_status_transition");
-  event.suggestionStatus = approve ? "approved" : "declined";
-  event.approvedBy = userId;
-  if (!approve) event.status = "cancelled";
-  await event.save();
-  if (event.suggestedBy) {
-    sendUserNotifications({
-      recipientIds: [String(event.suggestedBy)],
-      sender: userId,
-      title: approve ? "Event suggestion approved" : "Event suggestion declined",
-      body: approve ? "Your Event suggestion was approved." : "Your Event suggestion was declined.",
-      data: { type: "event", objectType: "event" },
-      objectId: event._id,
-    });
-  }
-  return eventView(event);
-}
-
-async function listSuggestions(userId, circleId, req) {
-  const { page, limit } = parsePaginationParams(req);
-  const circle = await loadCircle(circleId);
-  if (!isAdminUser(req.user)) await requireOrganizer(circle, userId);
-  const query = { circleId: circle._id, suggestionStatus: "pending" };
-  const [items, total] = await Promise.all([
-    Event.find(query)
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .lean(),
-    Event.countDocuments(query),
-  ]);
-  return { data: items.map((item) => eventView(item)), meta: generateMeta(page, limit, total) };
-}
-
-async function removeSuggestion(userId, eventId, isAdmin = false) {
-  const event = await Event.findById(objectId(eventId));
-  if (!event) throw httpError(404, "event_not_found");
-  const circle = await loadCircle(event.circleId);
-  if (!isAdmin) await requireOrganizer(circle, userId);
-  if (event.suggestionStatus !== "pending") throw httpError(409, "invalid_status_transition");
-  event.suggestionStatus = "declined";
-  event.status = "cancelled";
-  event.cancelledAt = new Date();
-  await event.save();
-  return { deleted: true };
 }
 
 async function rsvp(userId, eventId, showToParticipants = false) {
@@ -719,7 +654,7 @@ async function listAllEvents(req) {
 }
 
 async function listMyDraftEvents(userId) {
-  const events = await Event.find({ creatorId: userId, status: "draft", suggestedBy: null })
+  const events = await Event.find({ creatorId: userId, status: "draft" })
     .sort({ createdAt: -1, _id: -1 })
     .limit(2)
     .lean();
@@ -736,9 +671,6 @@ module.exports = {
   updateEvent,
   publishEvent,
   cancelEvent,
-  reviewSuggestion,
-  listSuggestions,
-  removeSuggestion,
   rsvp,
   decideRsvp,
   cancelRsvp,

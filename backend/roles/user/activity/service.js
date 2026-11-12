@@ -26,17 +26,16 @@ async function paged(query, model, page, limit, sort = { createdAt: -1 }) {
 }
 
 function userViewsById(users) {
-  return new Map(users.map((user) => [
-    String(user._id),
-    { _id: idStr(user._id), name: user.name || "", profileIcon: getFullImageUrl(user.profileIcon) },
-  ]));
+  return new Map(
+    users.map((user) => [
+      String(user._id),
+      { _id: idStr(user._id), name: user.name || "", profileIcon: getFullImageUrl(user.profileIcon) },
+    ]),
+  );
 }
 
 function dropViewsById(drops) {
-  return new Map(drops.map((drop) => [
-    String(drop._id),
-    { _id: idStr(drop._id), title: drop.title, idea: drop.idea },
-  ]));
+  return new Map(drops.map((drop) => [String(drop._id), { _id: idStr(drop._id), title: drop.title, idea: drop.idea }]));
 }
 
 async function received(userId, page, limit) {
@@ -44,67 +43,90 @@ async function received(userId, page, limit) {
     CircleMember.distinct("circleId", { userId, status: "invited" }),
     CircleMember.distinct("circleId", { userId, status: "active", role: "organizer" }),
   ]);
-  const requestedIds = organizerCircleIds.length
-    ? await CircleMember.distinct("circleId", {
-        circleId: { $in: organizerCircleIds },
-        status: "pending",
-        userId: { $ne: userId },
-      })
+  const circleIds = [...new Set([...invitedIds, ...organizerCircleIds].map(String))];
+  const circleItems = circleIds.length
+    ? await Circle.find({ deletedAt: null, _id: { $in: circleIds } })
+        .select("_id name creatorId")
+        .lean()
     : [];
-  const circleFilter = { deletedAt: null, _id: { $in: [...invitedIds, ...requestedIds] } };
-  const [connections, tapIns, circleItems, circleCount, organizerCircles, yourDrops, draftDropCount, draftEventCount] =
-    await Promise.all([
-      paged({ recipientId: userId, status: "pending" }, ConnectionRequest, page, limit),
-      paged({ responderId: userId, status: "pending", deletedAt: null }, TapIn, page, limit),
-      Circle.find(circleFilter)
-        .sort({ updatedAt: -1 })
-        .skip((page - 1) * limit)
-        .limit(limit)
-        .lean(),
-      Circle.countDocuments(circleFilter),
-      Circle.find({ deletedAt: null, _id: { $in: organizerCircleIds } })
-        .select("_id")
-        .lean(),
-      Drop.find({ ownerId: userId, deletedAt: null, status: { $in: ["open", "closed"] } })
-        .sort({ updatedAt: -1 })
-        .limit(2)
-        .select("_id title status date updatedAt")
-        .lean(),
-      Drop.countDocuments({ ownerId: userId, status: "draft", deletedAt: null }),
-      Event.countDocuments({ creatorId: userId, status: "draft", suggestionStatus: { $ne: "pending" } }),
-    ]);
-  const ownMemberships = await CircleMember.find({
-    circleId: { $in: circleItems.map((circle) => circle._id) },
-    userId,
-    status: { $in: ["pending", "invited"] },
-  }).lean();
-  const membershipsByCircle = new Map();
-  for (const member of ownMemberships) {
-    const key = String(member.circleId);
-    membershipsByCircle.set(key, [...(membershipsByCircle.get(key) || []), member]);
-  }
+  const circlesById = new Map(circleItems.map((circle) => [String(circle._id), circle]));
+  const validOrganizerCircleIds = circleItems
+    .filter((circle) => organizerCircleIds.some((id) => String(id) === String(circle._id)))
+    .map((circle) => circle._id);
+  const validInvitationCircleIds = circleItems
+    .filter((circle) => invitedIds.some((id) => String(id) === String(circle._id)))
+    .map((circle) => circle._id);
+  const incomingCircleFilter = {
+    circleId: { $in: validOrganizerCircleIds },
+    userId: { $ne: userId },
+    status: "pending",
+  };
+  const invitationFilter = { circleId: { $in: validInvitationCircleIds }, userId, status: "invited" };
+  const [
+    connections,
+    tapIns,
+    circleJoinRequests,
+    circleInvitations,
+    organizerCircles,
+    yourDrops,
+    draftDropCount,
+    draftEventCount,
+  ] = await Promise.all([
+    paged({ recipientId: userId, status: "pending" }, ConnectionRequest, page, limit),
+    paged({ responderId: userId, status: "pending", deletedAt: null }, TapIn, page, limit),
+    paged(incomingCircleFilter, CircleMember, page, limit),
+    paged(invitationFilter, CircleMember, page, limit),
+    Circle.find({ deletedAt: null, _id: { $in: organizerCircleIds } })
+      .select("_id")
+      .lean(),
+    Drop.find({ ownerId: userId, deletedAt: null, status: { $in: ["open", "closed"] } })
+      .sort({ updatedAt: -1 })
+      .limit(2)
+      .select("_id title status date updatedAt")
+      .lean(),
+    Drop.countDocuments({ ownerId: userId, status: "draft", deletedAt: null }),
+    Event.countDocuments({ creatorId: userId, status: "draft" }),
+  ]);
   const eventFilter = {
     circleId: { $in: organizerCircles.map((circle) => circle._id) },
     rsvps: { $elemMatch: { status: "pending", userId: { $ne: userId } } },
   };
-  const [eventItems, eventCount] = await Promise.all([
-    Event.find(eventFilter)
-      .sort({ updatedAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .lean(),
-    Event.countDocuments(eventFilter),
-  ]);
-  const receivedEventRequests = eventItems.flatMap((event) =>
-    (event.rsvps || [])
-      .filter((rsvp) => rsvp.status === "pending" && String(rsvp.userId) !== String(userId))
-      .map((request) => ({
-        eventId: idStr(event._id),
-        name: event.name,
-        userId: idStr(request.userId),
-        status: request.status,
-      })),
-  );
+  const [eventResult] = organizerCircles.length
+    ? await Event.aggregate([
+        { $match: eventFilter },
+        { $unwind: "$rsvps" },
+        { $match: { "rsvps.status": "pending", "rsvps.userId": { $ne: userId } } },
+        { $sort: { "rsvps.respondedAt": -1, updatedAt: -1, _id: -1, "rsvps.userId": 1 } },
+        {
+          $facet: {
+            items: [
+              { $skip: (page - 1) * limit },
+              { $limit: limit },
+              {
+                $project: {
+                  _id: 0,
+                  requestId: { $concat: [{ $toString: "$_id" }, ":", { $toString: "$rsvps.userId" }] },
+                  eventId: { $toString: "$_id" },
+                  name: "$name",
+                  date: "$date",
+                  time: "$time",
+                  publicArea: "$publicArea",
+                  requesterId: "$rsvps.userId",
+                  status: "$rsvps.status",
+                  createdAt: "$rsvps.respondedAt",
+                },
+              },
+            ],
+            total: [{ $count: "count" }],
+          },
+        },
+      ])
+    : [{ items: [], total: [] }];
+  const receivedEventRequests = (eventResult?.items || []).map((request) => ({
+    ...request,
+    requesterId: idStr(request.requesterId),
+  }));
+  const eventCount = eventResult?.total?.[0]?.count || 0;
   const dropIds = yourDrops.map((drop) => drop._id);
   const tapInCounts = await TapIn.aggregate([
     { $match: { dropId: { $in: dropIds }, status: "pending", deletedAt: null } },
@@ -112,31 +134,20 @@ async function received(userId, page, limit) {
   ]);
   const countsByDrop = new Map(tapInCounts.map((row) => [String(row._id), row.count]));
   const latestLimit = page * limit;
-  const incomingCircleFilter = {
-    circleId: { $in: organizerCircles.map((circle) => circle._id) },
-    userId: { $ne: userId },
-    status: "pending",
-  };
-  const [latestConnections, latestTapIns, incomingCircleMembers, invitations, latestEvents] = await Promise.all([
-    ConnectionRequest.find({ recipientId: userId, status: "pending" })
-      .sort({ createdAt: -1 })
-      .limit(latestLimit)
-      .lean(),
-    TapIn.find({ responderId: userId, status: "pending", deletedAt: null })
-      .sort({ createdAt: -1 })
-      .limit(latestLimit)
-      .lean(),
-    CircleMember.find(incomingCircleFilter).sort({ createdAt: -1 }).limit(latestLimit).lean(),
-    CircleMember.find({ userId, status: "invited" }).sort({ createdAt: -1 }).limit(latestLimit).lean(),
-    Event.find(eventFilter).sort({ updatedAt: -1 }).limit(latestLimit).lean(),
-  ]);
-  const requestCircleIds = [...incomingCircleMembers, ...invitations].map((member) => member.circleId);
-  const requestCircles = requestCircleIds.length
-    ? await Circle.find({ _id: { $in: requestCircleIds }, deletedAt: null })
-        .select("_id name creatorId")
-        .lean()
-    : [];
-  const circlesById = new Map(requestCircles.map((circle) => [String(circle._id), circle]));
+  const [latestConnections, latestTapIns, latestCircleJoinRequests, latestCircleInvitations, latestEvents] =
+    await Promise.all([
+      ConnectionRequest.find({ recipientId: userId, status: "pending" })
+        .sort({ createdAt: -1 })
+        .limit(latestLimit)
+        .lean(),
+      TapIn.find({ responderId: userId, status: "pending", deletedAt: null })
+        .sort({ createdAt: -1 })
+        .limit(latestLimit)
+        .lean(),
+      CircleMember.find(incomingCircleFilter).sort({ createdAt: -1 }).limit(latestLimit).lean(),
+      CircleMember.find(invitationFilter).sort({ createdAt: -1 }).limit(latestLimit).lean(),
+      Event.find(eventFilter).sort({ updatedAt: -1 }).limit(latestLimit).lean(),
+    ]);
   const latestRequests = [
     ...latestConnections.map((request) => ({
       type: "connection",
@@ -153,8 +164,8 @@ async function received(userId, page, limit) {
       status: request.status,
       createdAt: request.createdAt,
     })),
-    ...incomingCircleMembers.map((member) => ({
-      type: "circle",
+    ...latestCircleJoinRequests.map((member) => ({
+      type: "circle_join_request",
       requestId: idStr(member._id),
       circleId: idStr(member.circleId),
       circleName: circlesById.get(String(member.circleId))?.name || "",
@@ -162,8 +173,8 @@ async function received(userId, page, limit) {
       status: member.status,
       createdAt: member.createdAt,
     })),
-    ...invitations.map((member) => ({
-      type: "circle",
+    ...latestCircleInvitations.map((member) => ({
+      type: "circle_invitation",
       requestId: idStr(member._id),
       circleId: idStr(member.circleId),
       circleName: circlesById.get(String(member.circleId))?.name || "",
@@ -191,22 +202,29 @@ async function received(userId, page, limit) {
         ...latestRequests.map((request) => request.requesterId),
         ...connections.items.map((request) => request.requesterId),
         ...tapIns.items.map((tapIn) => tapIn.requesterId),
-        ...circleItems.map((circle) => circle.creatorId),
-        ...receivedEventRequests.map((request) => request.userId),
+        ...circleJoinRequests.items.map((request) => request.userId),
+        ...circleInvitations.items.map(
+          (invitation) => invitation.invitedBy || circlesById.get(String(invitation.circleId))?.creatorId,
+        ),
+        ...receivedEventRequests.map((request) => request.requesterId),
       ]
         .map((id) => String(id || ""))
         .filter(Boolean),
     ),
   ];
-  const tapInDropIds = [...new Set(
-    [...tapIns.items, ...latestTapIns].map((tapIn) => String(tapIn.dropId || "")).filter(Boolean),
-  )];
+  const tapInDropIds = [
+    ...new Set([...tapIns.items, ...latestTapIns].map((tapIn) => String(tapIn.dropId || "")).filter(Boolean)),
+  ];
   const [requesters, tapInDrops] = await Promise.all([
     requesterIds.length
-      ? User.find({ _id: { $in: requesterIds } }).select("_id name profileIcon").lean()
+      ? User.find({ _id: { $in: requesterIds } })
+          .select("_id name profileIcon")
+          .lean()
       : [],
     tapInDropIds.length
-      ? Drop.find({ _id: { $in: tapInDropIds } }).select("_id title idea").lean()
+      ? Drop.find({ _id: { $in: tapInDropIds } })
+          .select("_id title idea")
+          .lean()
       : [],
   ]);
   const tapInDropsById = dropViewsById(tapInDrops);
@@ -223,19 +241,28 @@ async function received(userId, page, limit) {
         requesterId: requesterById.get(String(tapIn.requesterId || "")) || null,
         dropId: tapInDropsById.get(String(tapIn.dropId || "")) || null,
       })),
-      circleRequests: circleItems.map((circle) => ({
-        circleId: idStr(circle._id),
-        name: circle.name,
-        creatorId: requesterById.get(String(circle.creatorId || "")) || null,
-        members: (membershipsByCircle.get(String(circle._id)) || []).map((member) => ({
-          userId: idStr(member.userId),
-          role: member.role,
-          status: member.status,
-        })),
+      circleJoinRequests: circleJoinRequests.items.map((request) => ({
+        requestId: idStr(request._id),
+        circleId: idStr(request.circleId),
+        circleName: circlesById.get(String(request.circleId))?.name || "",
+        requesterId: requesterById.get(String(request.userId || "")) || null,
+        status: request.status,
+        createdAt: request.createdAt,
+      })),
+      circleInvitations: circleInvitations.items.map((invitation) => ({
+        requestId: idStr(invitation._id),
+        circleId: idStr(invitation.circleId),
+        circleName: circlesById.get(String(invitation.circleId))?.name || "",
+        inviterId:
+          requesterById.get(
+            String(invitation.invitedBy || circlesById.get(String(invitation.circleId))?.creatorId || ""),
+          ) || null,
+        status: invitation.status,
+        createdAt: invitation.createdAt,
       })),
       eventRequests: receivedEventRequests.map((request) => ({
         ...request,
-        userId: requesterById.get(String(request.userId || "")) || null,
+        requesterId: requesterById.get(String(request.requesterId || "")) || null,
       })),
       drafts: { drops: draftDropCount, events: draftEventCount },
       yourDrops: yourDrops.map((drop) => ({
@@ -254,37 +281,46 @@ async function received(userId, page, limit) {
     meta: {
       connectionRequests: connections.meta,
       tapIns: tapIns.meta,
-      circleRequests: generateMeta(page, limit, circleCount),
+      circleJoinRequests: circleJoinRequests.meta,
+      circleInvitations: circleInvitations.meta,
       eventRequests: generateMeta(page, limit, eventCount),
     },
   };
 }
 
 async function sent(userId, page, limit) {
-  const circleMemberships = await CircleMember.find({
+  const [circleRequestIds, invitedCircleIds] = await Promise.all([
+    CircleMember.distinct("circleId", { userId, status: { $in: ["pending", "withdrawn"] } }),
+    CircleMember.distinct("circleId", { invitedBy: userId, status: "invited" }),
+  ]);
+  const [requestCircles, invitationCircles] = await Promise.all([
+    circleRequestIds.length
+      ? Circle.find({ deletedAt: null, _id: { $in: circleRequestIds } })
+          .select("_id name")
+          .lean()
+      : [],
+    invitedCircleIds.length
+      ? Circle.find({ deletedAt: null, _id: { $in: invitedCircleIds } })
+          .select("_id name")
+          .lean()
+      : [],
+  ]);
+  const circleRequestFilter = {
+    circleId: { $in: requestCircles.map((circle) => circle._id) },
     userId,
     status: { $in: ["pending", "withdrawn"] },
-  })
-    .select("circleId status")
-    .lean();
-  const circleStatusById = new Map(circleMemberships.map((member) => [String(member.circleId), member.status]));
-  const circleFilter = {
-    deletedAt: null,
-    _id: { $in: circleMemberships.map((member) => member.circleId) },
   };
-  const invitedCircleIds = await CircleMember.distinct("circleId", { invitedBy: userId, status: "invited" });
-  const invitationCircleFilter = { deletedAt: null, _id: { $in: invitedCircleIds } };
+  const invitationFilter = {
+    circleId: { $in: invitationCircles.map((circle) => circle._id) },
+    invitedBy: userId,
+    status: "invited",
+  };
   const eventFilter = { "rsvps.userId": userId };
-  const [connections, tapIns, circles, circleCount, invitationCircles, events, eventCount] = await Promise.all([
+  const [connections, tapIns, circleJoinRequests, circleInvitations, events, eventCount] = await Promise.all([
     paged({ requesterId: userId }, ConnectionRequest, page, limit),
     paged({ requesterId: userId, deletedAt: null }, TapIn, page, limit),
-    Circle.find(circleFilter)
-      .sort({ updatedAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .lean(),
-    Circle.countDocuments(circleFilter),
-    Circle.find(invitationCircleFilter).select("_id name").lean(),
+    paged(circleRequestFilter, CircleMember, page, limit),
+    paged(invitationFilter, CircleMember, page, limit),
     Event.find(eventFilter)
       .sort({ updatedAt: -1 })
       .skip((page - 1) * limit)
@@ -292,33 +328,33 @@ async function sent(userId, page, limit) {
       .lean(),
     Event.countDocuments(eventFilter),
   ]);
-  const invitationFilter = {
-    circleId: { $in: invitationCircles.map((circle) => circle._id) },
-    invitedBy: userId,
-    status: "invited",
-  };
-  const [circleInvitations, invitationCount] = await Promise.all([
-    CircleMember.find(invitationFilter)
-      .sort({ createdAt: -1, _id: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .lean(),
-    CircleMember.countDocuments(invitationFilter),
-  ]);
+  const circleNamesById = new Map(
+    requestCircles.concat(invitationCircles).map((circle) => [String(circle._id), circle.name]),
+  );
   const invitationNamesById = new Map(invitationCircles.map((circle) => [String(circle._id), circle.name]));
-  const recipientIds = [...new Set(
-    [
-      ...connections.items.map((request) => request.recipientId),
-      ...tapIns.items.map((tapIn) => tapIn.responderId),
-      ...circleInvitations.map((invitation) => invitation.userId),
-    ]
-      .map((id) => String(id || ""))
-      .filter(Boolean),
-  )];
+  const recipientIds = [
+    ...new Set(
+      [
+        ...connections.items.map((request) => request.recipientId),
+        ...tapIns.items.map((tapIn) => tapIn.responderId),
+        ...circleInvitations.items.map((invitation) => invitation.userId),
+      ]
+        .map((id) => String(id || ""))
+        .filter(Boolean),
+    ),
+  ];
   const dropIds = [...new Set(tapIns.items.map((tapIn) => String(tapIn.dropId || "")).filter(Boolean))];
   const [recipients, drops] = await Promise.all([
-    recipientIds.length ? User.find({ _id: { $in: recipientIds } }).select("_id name profileIcon").lean() : [],
-    dropIds.length ? Drop.find({ _id: { $in: dropIds } }).select("_id title idea").lean() : [],
+    recipientIds.length
+      ? User.find({ _id: { $in: recipientIds } })
+          .select("_id name profileIcon")
+          .lean()
+      : [],
+    dropIds.length
+      ? Drop.find({ _id: { $in: dropIds } })
+          .select("_id title idea")
+          .lean()
+      : [],
   ]);
   const recipientsById = userViewsById(recipients);
   const dropsById = dropViewsById(drops);
@@ -333,29 +369,36 @@ async function sent(userId, page, limit) {
         dropId: dropsById.get(String(tapIn.dropId || "")) || null,
         responderId: recipientsById.get(String(tapIn.responderId || "")) || null,
       })),
-      circleRequests: circles.map((circle) => ({
-        circleId: idStr(circle._id),
-        name: circle.name,
-        status: circleStatusById.get(String(circle._id)),
+      circleJoinRequests: circleJoinRequests.items.map((request) => ({
+        requestId: idStr(request._id),
+        circleId: idStr(request.circleId),
+        circleName: circleNamesById.get(String(request.circleId)) || "",
+        requesterId: idStr(userId),
+        status: request.status,
+        createdAt: request.createdAt,
       })),
-      circleInvitations: circleInvitations.map((invitation) => ({
+      circleInvitations: circleInvitations.items.map((invitation) => ({
+        requestId: idStr(invitation._id),
         circleId: idStr(invitation.circleId),
-        name: invitationNamesById.get(String(invitation.circleId)) || "",
+        circleName: invitationNamesById.get(String(invitation.circleId)) || "",
         recipientId: recipientsById.get(String(invitation.userId || "")) || null,
         status: invitation.status,
+        createdAt: invitation.createdAt,
       })),
-      eventRsvps: events.map((event) => ({
+      eventRequests: events.map((event) => ({
+        requestId: `${idStr(event._id)}:${idStr(userId)}`,
         eventId: idStr(event._id),
         name: event.name,
+        requesterId: idStr(userId),
         status: event.rsvps.find((rsvp) => String(rsvp.userId) === String(userId))?.status,
       })),
     },
     meta: {
       connectionRequests: connections.meta,
       tapIns: tapIns.meta,
-      circleRequests: generateMeta(page, limit, circleCount),
-      circleInvitations: generateMeta(page, limit, invitationCount),
-      eventRsvps: generateMeta(page, limit, eventCount),
+      circleJoinRequests: circleJoinRequests.meta,
+      circleInvitations: circleInvitations.meta,
+      eventRequests: generateMeta(page, limit, eventCount),
     },
   };
 }
@@ -374,7 +417,7 @@ async function work(userId, page, limit) {
     ),
     Drop.countDocuments({ ownerId: userId, status: "draft", deletedAt: null }),
     Favorites.countDocuments({ user: userId }),
-    Event.countDocuments({ creatorId: userId, status: "draft", suggestionStatus: { $ne: "pending" } }),
+    Event.countDocuments({ creatorId: userId, status: "draft" }),
   ]);
   const openCount = await Drop.countDocuments({
     ownerId: userId,

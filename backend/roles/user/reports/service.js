@@ -82,7 +82,7 @@ async function createReport(reporterId, body = {}) {
             ? "ownerId"
             : resourceType === "circle"
               ? "creatorId"
-              : "creatorId suggestedBy",
+              : "creatorId",
       )
       .lean();
     if (!resource) throw httpError(404, "report_resource_not_found");
@@ -93,7 +93,7 @@ async function createReport(reporterId, body = {}) {
           ? resource.senderId
           : resourceType === "circle"
             ? resource.creatorId
-            : resource.suggestedBy || resource.creatorId;
+            : resource.creatorId;
     if (String(ownerId) !== String(reportedUserId)) throw httpError(400, "report_resource_target_mismatch");
   }
 
