@@ -14,6 +14,7 @@ router.patch("/events/:id", ...gated, c.update);
 router.post("/events/:id/publish", ...gated, c.publish);
 router.post("/events/:id/cancel", ...gated, c.cancel);
 router.post("/events/:id/rsvp", ...gated, c.rsvp);
+router.get("/events/:id/rsvps", ...gated, c.listRsvps);
 router.post("/events/:id/rsvp/cancel", ...gated, c.cancelRsvp);
 router.post("/events/:id/rsvp/:userId/approve", ...gated, c.approveRsvp);
 router.post("/events/:id/rsvp/:userId/decline", ...gated, c.declineRsvp);

@@ -19,6 +19,7 @@ module.exports = {
     service.rsvp(req.user._id, req.params.id, req.body?.showToParticipants === true),
   ),
   cancelRsvp: one(200, "event_rsvp_cancelled", (req) => service.cancelRsvp(req.user._id, req.params.id)),
+  listRsvps: list("event_rsvps_fetched", (req) => service.listRsvps(req.user._id, req.params.id, req)),
   approveRsvp: one(200, "event_rsvp_approved", (req) =>
     service.decideRsvp(req.user._id, req.params.id, req.params.userId, true),
   ),

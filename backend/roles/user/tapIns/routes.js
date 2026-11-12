@@ -6,6 +6,7 @@ const router = express.Router();
 
 router.get("/me/tap-ins", ...gated, c.listMyTapIns);
 router.post("/drops/:id/tap-ins", ...gated, c.createTapIn);
+router.get("/drops/:id/tap-ins", ...gated, c.manageDropTapIns);
 router.post("/proposals", ...gated, c.sendProposal);
 router.post("/collaborations", ...gated, c.sendCollaboration);
 router.get("/tap-ins", ...adminOnly, c.listAllTapIns);

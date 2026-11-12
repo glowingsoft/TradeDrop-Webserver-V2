@@ -261,7 +261,78 @@ module.exports = {
       get: {
         tags: ["Catalog"],
         summary: "List categories (API-010)",
-        responses: { 200: { description: "Active launch categories" } },
+        responses: { 200: { description: "Active categories, each with an interests string array" } },
+      },
+    },
+    "/categories/interests": {
+      get: {
+        tags: ["Catalog"],
+        summary: "List interests grouped by categories outside the caller's crafts",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1 } },
+          { name: "keyword", in: "query", schema: { type: "string" } },
+          { name: "parentId", in: "query", schema: { type: "string" } },
+        ],
+        responses: {
+          200: { description: "Paginated active categories excluding the caller's craft IDs; each includes its interests array, including empty arrays." },
+          401: { description: "Authentication required or account unavailable" },
+        },
+      },
+    },
+    "/admin/catalog/categories": {
+      post: {
+        tags: ["Catalog"],
+        security: [{ bearerAuth: [] }],
+        summary: "Create or update a category by slug",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["slug", "name"],
+                properties: {
+                  slug: { type: "string" },
+                  name: { type: "string" },
+                  interests: { type: "array", items: { type: "string", minLength: 1 } },
+                  parentId: { type: "string", nullable: true },
+                  image: { type: "string" },
+                  sortOrder: { type: "number" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: "Category saved in data.category; no conversation group is created" },
+          400: { description: "Invalid category or interests" },
+        },
+      },
+    },
+    "/admin/catalog/categories/{id}": {
+      put: {
+        tags: ["Catalog"],
+        security: [{ bearerAuth: [] }],
+        summary: "Update category fields, including interests",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  interests: { type: "array", items: { type: "string", minLength: 1 } },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: "Updated category; an empty interests array clears existing interests" },
+          400: { description: "Invalid category or interests" },
+        },
       },
     },
     "/drops": {
@@ -388,6 +459,80 @@ module.exports = {
       },
     },
     "/drops/{id}/tap-ins": {
+      get: {
+        tags: ["Tap-ins"],
+        summary: "Manage Tap-ins for a Drop (owner only)",
+        description:
+          "Lists non-withdrawn Tap-ins for an existing Drop, including closed Drops. Direct requests created " +
+          "by the owner are included, so their requester is the owner. Counts cover every status regardless of the filter.",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["all", "pending", "accepted", "declined", "closed"] } },
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100 } },
+        ],
+        responses: {
+          200: {
+            description: "Paginated Tap-ins and requester profiles with status counts",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    data: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          _id: { type: "string" },
+                          dropId: { type: "string" },
+                          requesterId: { type: "string" },
+                          responderId: { type: "string" },
+                          notes: { type: "string" },
+                          status: { type: "string", enum: ["pending", "accepted", "declined", "closed"] },
+                          withdrawn: { type: "boolean" },
+                          tradeId: { type: "string", nullable: true },
+                          createdAt: { type: "string", format: "date-time" },
+                          updatedAt: { type: "string", format: "date-time" },
+                          requester: {
+                            type: "object",
+                            nullable: true,
+                            properties: {
+                              _id: { type: "string" },
+                              name: { type: "string" },
+                              handle: { type: "string" },
+                              profileIcon: { type: "string" },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    meta: {
+                      type: "object",
+                      properties: {
+                        currentPage: { type: "integer" },
+                        totalPages: { type: "integer" },
+                        totalRecords: { type: "integer", description: "Total matching the status filter" },
+                        limit: { type: "integer" },
+                        counts: {
+                          type: "object",
+                          properties: Object.fromEntries(
+                            ["all", "pending", "accepted", "declined", "closed"].map((key) => [key, { type: "integer" }]),
+                          ),
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: "Invalid status" },
+          403: { description: "Caller is not the Drop owner" },
+          404: { description: "Drop not found" },
+        },
+      },
       post: {
         tags: ["Tap-ins"],
         summary: "Create tap-in (API-040)",
@@ -541,7 +686,7 @@ module.exports = {
         responses: {
           200: {
             description:
-              "Full self profile, including organizerCircleCount, total active connectionCount, up to four latest connection profiles, savedUserCount, and blockedUserCount.",
+              "Full self profile, including interests, Circle and connection summaries, savedUserCount, and blockedUserCount.",
           },
         },
       },
@@ -557,6 +702,7 @@ module.exports = {
                 properties: {
                   name: { type: "string" },
                   bio: { type: "string" },
+                  interests: { type: "array", items: { type: "string", minLength: 1 }, description: "Replaces the interests list; send [] to clear it." },
                   profileIcon: { type: "string" },
                   imageUrl: { type: "string", description: "Alias for profileIcon" },
                   onboarding: {
@@ -590,7 +736,7 @@ module.exports = {
             },
           },
         },
-        responses: { 200: { description: "Updated" }, 409: { description: "Duplicate handle" } },
+        responses: { 200: { description: "Updated profile including interests" }, 400: { description: "Invalid profile fields or interests" }, 409: { description: "Duplicate handle" } },
       },
       delete: {
         tags: ["Profile"],
@@ -1225,12 +1371,41 @@ module.exports = {
       },
     },
     "/circles/{id}/polls": {
+      get: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["active", "closed"] } },
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1 } },
+        ],
+        responses: {
+          200: { description: "Newest-first polls with voteCount, per-option voteCounts, and the viewer's myVote" },
+        },
+      },
       post: {
         tags: ["Circles"],
         security: [{ bearerAuth: [] }],
         responses: {
           201: { description: "Create a Circle poll; only one can be active, with a default two-day duration" },
           409: { description: "The Circle already has an active poll" },
+        },
+      },
+    },
+    "/circles/{id}/polls/{pollId}": {
+      get: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        summary: "Get a Circle poll by its ID",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "pollId", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          200: { description: "Poll with circleId, status, voteCount, voteCounts, and the viewer's myVote" },
+          403: { description: "Caller is not an active Circle member" },
+          404: { description: "Circle or poll not found" },
         },
       },
     },
@@ -1243,6 +1418,23 @@ module.exports = {
           { name: "pollId", in: "path", required: true, schema: { type: "string" } },
         ],
         responses: { 200: { description: "Vote once in the specified active Circle poll" } },
+      },
+    },
+    "/circles/{id}/polls/{pollId}/close": {
+      post: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        summary: "Close an active Circle poll early (organizer only)",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "pollId", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          200: { description: "Closed poll with actual closesAt, vote counts, and the caller's myVote" },
+          403: { description: "Caller is not an active Circle organizer" },
+          404: { description: "Circle or poll not found" },
+          409: { description: "Poll is already closed or expired" },
+        },
       },
     },
     "/circles/{id}/polls/vote": {
@@ -1286,7 +1478,11 @@ module.exports = {
     "/events/{id}": {
       get: {
         tags: ["Events"],
-        responses: { 200: { description: "Event details and relevant open Circle-member Drops" } },
+        responses: {
+          200: {
+            description: "Event details include circle {_id, name, creator: {_id, name, profileIcon} or null}, myRsvp and viewerRsvp {status, hasPlace, canRsvp, canCancelRsvp}, plus relevant open Circle-member Drops. Anonymous viewers cannot RSVP; pending and waitlist are not confirmed places.",
+          },
+        },
       },
       patch: {
         tags: ["Events"],
@@ -1306,6 +1502,24 @@ module.exports = {
         tags: ["Events"],
         security: [{ bearerAuth: [] }],
         responses: { 200: { description: "Cancel Event" } },
+      },
+    },
+    "/events/{id}/rsvps": {
+      get: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        summary: "List Event RSVPs and viewer-specific connection status",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["going", "pending", "waitlist", "cancelled"] } },
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1 } },
+        ],
+        responses: {
+          200: { description: "Paginated RSVPs with user profile and connection status. Organizers and admins see all; active members and going participants see only going attendees who opted in. Connection requests are disabled when either user has blocked the other." },
+          403: { description: "Viewer is not eligible or requested an organizer-only RSVP status" },
+          404: { description: "Event unavailable to viewer" },
+        },
       },
     },
     "/events/{id}/rsvp": {

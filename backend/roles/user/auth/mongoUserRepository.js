@@ -42,6 +42,7 @@ function toPublic(doc) {
     },
     otp: o.tfOtp || {},
     crafts: mapIds(o.crafts || []),
+    interests: o.interests || [],
     links: o.links || [],
     portfolioItems: (o.portfolioItems || []).map((p) => portfolioItemView({
       _id: idStr(p._id),

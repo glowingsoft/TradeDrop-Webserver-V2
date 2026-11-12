@@ -14,6 +14,7 @@ const BlockedUser = require("@models/BlockedUser");
 const { Favorites } = require("@backend/commonModules/favorites/Favorite");
 const { getFullImageUrl } = require("@helperUtils/imageHelper");
 const { MAX_PORTFOLIO_IMAGES, portfolioItemView } = require("@helperUtils/portfolioUtil");
+const { normalizeInterests } = require("../_shared/interests");
 
 const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 const TIMING_CHIPS = ["asap", "this_week", "this_month", "flexible"];
@@ -76,6 +77,7 @@ function selfProfile(user) {
     portfolioItems: (user.portfolioItems || []).map((item) => portfolioItemView(item)),
     verified: !!user.verified,
     crafts: user.crafts || [],
+    interests: user.interests || [],
     metadata: {
       timezone: user.timezone || "UTC",
       createdAt: user.createdAt,
@@ -233,6 +235,11 @@ async function patchMe(userId, body = {}) {
     const bio = String(body.bio);
     patch.bio = bio;
   }
+  if (body.interests !== undefined) {
+    if (!Array.isArray(body.interests)) throw AppError("interests_invalid", 400);
+    const interests = body.interests.map(String);
+    patch.interests = interests;
+  }
   if (body.specialty !== undefined) {
     const specialty = String(body.specialty).trim();
     if (specialty.length > 120) throw AppError("specialty_too_long", 400);
@@ -283,6 +290,7 @@ async function patchMe(userId, body = {}) {
     if (!Array.isArray(body.crafts)) throw AppError("crafts_invalid", 400);
     patch.crafts = body.crafts.map(String);
   }
+  if (body.interests !== undefined) patch.interests = normalizeInterests(body.interests, "user_interests_invalid");
 
   if (body.handle !== undefined) {
     const handle = String(body.handle).toLowerCase().trim();

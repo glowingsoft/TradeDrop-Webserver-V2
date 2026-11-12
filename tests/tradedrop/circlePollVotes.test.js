@@ -106,6 +106,39 @@ describe("separate Circle poll votes", () => {
     assert.deepEqual(result.data[0].voteCounts, [1, 1]);
   });
 
+  it("filters and paginates newest polls while counting only their own votes", async () => {
+    const closedId = new mongoose.Types.ObjectId();
+    const unvotedId = new mongoose.Types.ObjectId();
+    circle.polls.push(
+      { ...circle.polls[0], _id: closedId, closesAt: new Date("2000-01-01") },
+      { ...circle.polls[0], _id: unvotedId },
+    );
+    votes = [
+      { circleId, pollId, userId, optionIndex: 0 },
+      { circleId, pollId: closedId, userId: otherId, optionIndex: 1 },
+    ];
+    const req = { user: { _id: userId }, query: { status: "active", page: "1", limit: "1" } };
+    const first = await service.listPolls(String(userId), String(circleId), req);
+    assert.equal(first.data[0]._id, String(unvotedId));
+    assert.equal(first.data[0].voteCount, 0);
+    assert.deepEqual(first.data[0].voteCounts, [0, 0]);
+    assert.equal(first.data[0].myVote, null);
+    assert.equal(first.meta.totalRecords, 2);
+
+    req.query.page = "2";
+    const second = await service.listPolls(String(userId), String(circleId), req);
+    assert.equal(second.data[0]._id, String(pollId));
+    assert.equal(second.data[0].voteCount, 1);
+    assert.equal(second.data[0].myVote, 0);
+
+    req.query = { status: "closed" };
+    const closed = await service.listPolls(String(userId), String(circleId), req);
+    assert.equal(closed.data[0]._id, String(closedId));
+    assert.equal(closed.data[0].status, "closed");
+    assert.deepEqual(closed.data[0].voteCounts, [0, 1]);
+    assert.equal(closed.data[0].myVote, null);
+  });
+
   it("includes separate vote totals in Circle list responses", async () => {
     votes = [{ circleId, pollId, userId, optionIndex: 1 }];
     const saved = [];

@@ -22,8 +22,9 @@ router.post("/circles/:id/invitations", ...gated, c.invite);
 router.post("/circles/:id/invitations/respond", ...gated, c.respondInvitation);
 router.post("/circles/:id/transfer-organizer", ...gated, c.transfer);
 router.get("/circles/:id/polls", ...gated, c.listPolls);
+router.get("/circles/:id/polls/:pollId", ...gated, c.getPoll);
 router.post("/circles/:id/polls", ...gated, c.createPoll);
+router.post("/circles/:id/polls/:pollId/close", ...gated, c.closePoll);
 router.post("/circles/:id/polls/:pollId/vote", ...gated, c.votePoll);
-router.post("/circles/:id/polls/vote", ...gated, c.votePoll);
 
 module.exports = router;

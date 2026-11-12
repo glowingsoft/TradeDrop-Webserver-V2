@@ -2,9 +2,11 @@ const mongoose = require("mongoose");
 const Circle = require("@models/Circle");
 const Event = require("@models/Event");
 const UserReport = require("@models/UserReport");
+const BlockedUser = require("@models/BlockedUser");
 const { Drop } = require("@models/Drop");
 const { User } = require("@UsersModel");
 const { getFullImageUrl } = require("@helperUtils/imageHelper");
+const { getConnectionStatuses } = require("@helperUtils/connectionUtil");
 const { sendUserNotifications } = require("@backend/controllers/communicationController");
 const { parsePaginationParams, generateMeta } = require("@helperUtils/responseUtil");
 const { httpError, idStr, isAdminUser } = require("../_shared/serialize");
@@ -376,6 +378,81 @@ async function cancelRsvp(userId, eventId) {
   return eventView(result.event, { viewerId: userId });
 }
 
+async function listRsvps(userId, eventId, req) {
+  const event = await Event.findById(objectId(eventId)).lean();
+  if (!event || event.status !== "published") throw httpError(404, "event_not_found");
+  const circle = await loadCircle(event.circleId);
+  const admin = isAdminUser(req.user);
+  await requireEventAccess(event, circle, userId, null, admin);
+  const member = admin ? null : await activeMember(circle, userId);
+  const canManage = admin || member?.role === "organizer";
+  const going = (event.rsvps || []).some(
+    (entry) => String(entry.userId) === String(userId) && entry.status === "going",
+  );
+  if (!canManage && !member && !going) throw httpError(403, "event_attendees_forbidden");
+
+  const { status } = req.query;
+  if (status !== undefined && !["going", "pending", "waitlist", "cancelled"].includes(status)) {
+    throw httpError(400, "event_rsvp_status_invalid");
+  }
+  if (!canManage && status && status !== "going") throw httpError(403, "event_attendees_forbidden");
+  const entries = (event.rsvps || []).filter(
+    (entry) =>
+      (!status || entry.status === status) &&
+      (canManage || (entry.status === "going" && entry.showToParticipants === true)),
+  );
+  const { page, limit } = parsePaginationParams(req);
+  const selected = entries.slice((page - 1) * limit, page * limit);
+  const userIds = selected.map((entry) => entry.userId);
+  const [users, relationships, blocks] = await Promise.all([
+    userIds.length
+      ? User.find({ _id: { $in: userIds } })
+          .select("name handle profileIcon")
+          .lean()
+      : [],
+    getConnectionStatuses(userId, userIds),
+    userIds.length
+      ? BlockedUser.find({
+          $or: [
+            { blockedBy: userId, blockedUser: { $in: userIds } },
+            { blockedBy: { $in: userIds }, blockedUser: userId },
+          ],
+        })
+          .select("blockedBy blockedUser")
+          .lean()
+      : [],
+  ]);
+  const profiles = new Map(users.map((user) => [String(user._id), user]));
+  const blockedIds = new Set(
+    blocks.map((block) =>
+      String(block.blockedBy) === String(userId) ? String(block.blockedUser) : String(block.blockedBy),
+    ),
+  );
+  return {
+    data: selected.map((entry) => {
+      const id = idStr(entry.userId);
+      const user = profiles.get(id);
+      return {
+        userId: id,
+        status: entry.status,
+        showToParticipants: entry.showToParticipants === true,
+        respondedAt: entry.respondedAt || null,
+        profile: user
+          ? {
+              _id: idStr(user._id),
+              name: user.name || "",
+              handle: user.handle || "",
+              profileIcon: user.profileIcon ? getFullImageUrl(user.profileIcon) : "",
+            }
+          : null,
+        ...relationships.get(id),
+        ...(blockedIds.has(id) ? { canSendConnectionRequest: false } : {}),
+      };
+    }),
+    meta: generateMeta(page, limit, entries.length),
+  };
+}
+
 async function getEvent(eventId, userId = null, isAdmin = false) {
   const event = await Event.findById(objectId(eventId)).lean();
   if (!event || event.status !== "published") throw httpError(404, "event_not_found");
@@ -403,6 +480,26 @@ async function getEvent(eventId, userId = null, isAdmin = false) {
       ),
     allAttendees: isAdmin,
   });
+  const creator = await User.findById(circle.creatorId).select("name profileIcon").lean();
+  view.circle = {
+    _id: idStr(circle._id),
+    name: circle.name,
+    creator: creator
+      ? {
+          _id: idStr(creator._id),
+          name: creator.name || "",
+          profileIcon: creator.profileIcon ? getFullImageUrl(creator.profileIcon) : "",
+        }
+      : null,
+  };
+  const status = view.myRsvp?.status || null;
+  const canAccessRsvp = Boolean(userId && (event.audience !== "member_only" || isActiveMember));
+  view.viewerRsvp = {
+    status,
+    hasPlace: status === "going",
+    canRsvp: canAccessRsvp && (status === null || status === "cancelled"),
+    canCancelRsvp: canAccessRsvp && ["going", "pending", "waitlist"].includes(status),
+  };
   if (view.attendees) {
     const attendeeIds = view.attendees.map((attendee) => attendee.userId);
     const attendees = await User.find({ _id: { $in: attendeeIds } })
@@ -674,6 +771,7 @@ module.exports = {
   rsvp,
   decideRsvp,
   cancelRsvp,
+  listRsvps,
   getEvent,
   listEvents,
   listAllEvents,

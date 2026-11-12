@@ -339,6 +339,53 @@ async function listMyTapIns(userId, direction, req) {
   };
 }
 
+async function manageDropTapIns(userId, dropId, req) {
+  const id = toObjectId(dropId, "drop_not_found");
+  const drop = await Drop.findOne({ _id: id, deletedAt: null }).select("ownerId").lean();
+  if (!drop) throw httpError(404, "drop_not_found");
+  if (String(drop.ownerId) !== String(userId)) throw httpError(403, "access_denied");
+
+  const { status } = req.query;
+  const statuses = ["pending", "accepted", "declined", "closed"];
+  if (status !== undefined && status !== "all" && !statuses.includes(status)) {
+    throw httpError(400, "tap_in_status_invalid");
+  }
+  const { page, limit } = parsePaginationParams(req);
+  const statusFilter = status && status !== "all" ? [{ $match: { status } }] : [];
+  const [result] = await TapIn.aggregate([
+    { $match: { dropId: id, deletedAt: null } },
+    {
+      $facet: {
+        items: [
+          ...statusFilter,
+          { $sort: { createdAt: -1, _id: -1 } },
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+        ],
+        total: [...statusFilter, { $count: "count" }],
+        counts: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+      },
+    },
+  ]);
+  const counts = { all: 0, pending: 0, accepted: 0, declined: 0, closed: 0 };
+  for (const entry of result.counts) {
+    if (statuses.includes(entry._id)) {
+      counts[entry._id] = entry.count;
+      counts.all += entry.count;
+    }
+  }
+  const users = await usersById(result.items.map((item) => item.requesterId));
+  const meta = generateMeta(page, limit, result.total[0]?.count || 0);
+  meta.counts = counts;
+  return {
+    data: result.items.map((item) => ({
+      ...toTapInView(item),
+      requester: userBrief(users.get(String(item.requesterId))),
+    })),
+    meta,
+  };
+}
+
 async function getTapIn(userId, tapInId) {
   const id = toObjectId(tapInId, "tap_in_not_found");
   const tapIn = await TapIn.findOne({ _id: id, deletedAt: null }).lean();
@@ -494,6 +541,7 @@ module.exports = {
   declineTapIn,
   acceptTapIn,
   listMyTapIns,
+  manageDropTapIns,
   getTapIn,
   getAllTapIns,
 };

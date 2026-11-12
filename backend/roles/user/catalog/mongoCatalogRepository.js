@@ -4,19 +4,18 @@ const Area = require("../../../models/Area");
 const AppSettings = require("../../../models/AppSettings");
 const { idStr, idStrOrNull } = require("../_shared/serialize");
 const { getFullImageUrl } = require("@helperUtils/imageHelper");
-const Conversation = require("@backend/commonModules/chatModule/models/Conversation");
 const { parsePaginationParams, generateMeta } = require("../../../helperUtils/responseUtil");
 
 const CATEGORY_SEED = [
-  { slug: "hairdresser", name: "Hairdresser", chipGroup: "hair", sortOrder: 1 },
-  { slug: "barber", name: "Barber", chipGroup: "hair", sortOrder: 2 },
-  { slug: "stylist", name: "Stylist", chipGroup: "hair", sortOrder: 3 },
-  { slug: "makeup", name: "Makeup", chipGroup: "makeup", sortOrder: 4 },
-  { slug: "photographer", name: "Photographer", chipGroup: "photo", sortOrder: 5 },
-  { slug: "videographer", name: "Videographer", chipGroup: "video", sortOrder: 6 },
-  { slug: "model", name: "Model", chipGroup: "photo", sortOrder: 7 },
-  { slug: "editor", name: "Editor", chipGroup: "photo", sortOrder: 8 },
-  { slug: "designer", name: "Designer", chipGroup: "photo", sortOrder: 9 },
+  { slug: "hairdresser", name: "Hairdresser", sortOrder: 1 },
+  { slug: "barber", name: "Barber", sortOrder: 2 },
+  { slug: "stylist", name: "Stylist", sortOrder: 3 },
+  { slug: "makeup", name: "Makeup", sortOrder: 4 },
+  { slug: "photographer", name: "Photographer", sortOrder: 5 },
+  { slug: "videographer", name: "Videographer", sortOrder: 6 },
+  { slug: "model", name: "Model", sortOrder: 7 },
+  { slug: "editor", name: "Editor", sortOrder: 8 },
+  { slug: "designer", name: "Designer", sortOrder: 9 },
 ];
 
 const AREA_SEED = [
@@ -33,7 +32,7 @@ function toCategory(doc) {
     slug: doc.slug,
     name: doc.name,
     parentId: idStrOrNull(doc.parentId),
-    chipGroup: doc.chipGroup,
+    interests: doc.interests || [],
     status: doc.status || "active",
     sortOrder: doc.sortOrder ?? 0,
     image: getFullImageUrl(doc.image) || null,
@@ -47,28 +46,6 @@ async function ensureSeed() {
   const count = await Category.countDocuments();
   if (count === 0) {
     await Category.insertMany(CATEGORY_SEED);
-    const ccount = await Conversation.countDocuments();
-    if (ccount === 0) {
-      const conversations = CATEGORY_SEED?.map((c) => {
-        const cname = `${c.chipGroup.toUpperCase()}: ${c.name}`;
-        return {
-          type: "group",
-          groupName: cname,
-          participants: [], // Empty participants initially
-          admins: [],
-          groupMetadata: {
-            description: `Category group for ${c.name}`,
-          },
-          groupSettings: {
-            canMessage: true,
-            isPrivate: false,
-          },
-        };
-      });
-      if (conversations.length > 0) {
-        await Conversation.insertMany(conversations);
-      }
-    }
   }
   for (const area of AREA_SEED) {
     await Area.updateOne({ label: area.label }, { $setOnInsert: area }, { upsert: true });
@@ -150,7 +127,7 @@ async function createCategory(data) {
   const doc = await Category.create({
     slug: data.slug,
     name: data.name,
-    chipGroup: data.chipGroup,
+    interests: data.interests,
     status: data.status !== undefined ? data.status : "active",
     image: data.image || "noimg.png",
     sortOrder: data.sortOrder || 0,
@@ -170,10 +147,8 @@ async function reset() {
 
 async function getCategories({ req, filter = {} }) {
   const { page, limit } = parsePaginationParams(req);
-
-  const { keyword, chipGroup, parentId, status } = req.query || {
+  const { keyword, parentId, status } = req.query || {
     keyword: "",
-    chipGroup: "",
     parentId: "",
     status: "",
   };
@@ -181,16 +156,11 @@ async function getCategories({ req, filter = {} }) {
   const baseMatch = {
     ...filter,
   };
-
   if (keyword?.trim()) {
     baseMatch.name = {
       $regex: keyword.trim(),
       $options: "i",
     };
-  }
-
-  if (chipGroup) {
-    baseMatch.chipGroup = chipGroup;
   }
 
   if (parentId) {
@@ -232,7 +202,7 @@ async function getCategories({ req, filter = {} }) {
               slug: 1,
               name: 1,
               parentId: 1,
-              chipGroup: 1,
+              interests: { $ifNull: ["$interests", []] },
               status: 1,
               image: { $concat: [process.env.S3_BASE_URL || "", "$image"] },
               sortOrder: 1,

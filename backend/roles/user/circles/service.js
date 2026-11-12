@@ -533,8 +533,11 @@ async function listAllCircles(req, { excludeUserIds = [] } = {}) {
   const totalRecords = result?.[0]?.total?.[0]?.count || 0;
   const voteSummaries = await pollVoteSummaries(items);
   const data = items.map((circle) => {
-    const { memberCount, pendingRequestCount, joinedInvitationCount, pendingInvitationCount, ...view } =
-      circleView(circle, EMPTY_COUNTS, voteSummaries);
+    const { memberCount, pendingRequestCount, joinedInvitationCount, pendingInvitationCount, ...view } = circleView(
+      circle,
+      EMPTY_COUNTS,
+      voteSummaries,
+    );
     return {
       ...view,
       coverImage: circle.coverImage ? getFullImageUrl(circle.coverImage) : "",
@@ -567,7 +570,7 @@ async function listCircles(req, { excludeUserIds = [] } = {}) {
   const match = {
     deletedAt: null,
     creatorId: { $exists: true },
-    creatorId: { $ne: req.user._id },
+    // creatorId: { $ne: req.user._id },
     privacy: { $in: ["open", "approval"] },
   };
   if (excludeUserIds.length) match.creatorId = { $nin: excludeUserIds };
@@ -626,8 +629,11 @@ async function listCircles(req, { excludeUserIds = [] } = {}) {
   const circles = result?.items || [];
   const voteSummaries = await pollVoteSummaries(circles);
   const data = circles.map((circle) => {
-    const { memberCount, pendingRequestCount, joinedInvitationCount, pendingInvitationCount, ...view } =
-      circleView(circle, EMPTY_COUNTS, voteSummaries);
+    const { memberCount, pendingRequestCount, joinedInvitationCount, pendingInvitationCount, ...view } = circleView(
+      circle,
+      EMPTY_COUNTS,
+      voteSummaries,
+    );
     return {
       ...view,
       coverImage: circle.coverImage ? getFullImageUrl(circle.coverImage) : "",
@@ -639,7 +645,11 @@ async function listCircles(req, { excludeUserIds = [] } = {}) {
 
 async function listMyCircles(userId, req) {
   const { page, limit } = parsePaginationParams(req);
+  const { creatorId } = req.query;
   const filter = { _id: { $in: await membership.circleIdsFor(userId) }, deletedAt: null };
+  if (creatorId) {
+    filter.creatorId = new mongoose.Types.ObjectId(creatorId);
+  }
   const keyword = String(req.query.keyword || "").trim();
   if (keyword) {
     const expression = { $regex: escapeRegex(keyword), $options: "i" };
@@ -691,9 +701,7 @@ async function latestMembersFor(circleId, viewerId = null) {
 
 async function getCircle(circleId, viewerId = null, isAdmin = false) {
   const circle = await loadCircle(circleId);
-  const viewerMembership = viewerId
-    ? await membership.getMember(circle._id, viewerId, { status: null })
-    : null;
+  const viewerMembership = viewerId ? await membership.getMember(circle._id, viewerId, { status: null }) : null;
   const isMember = viewerMembership?.status === "active";
   if (circle.privacy === "invite_only" && !isMember && !isAdmin) throw httpError(404, "circle_not_found");
   const memberIds = await membership.activeMemberIds(circle._id);
@@ -1128,6 +1136,29 @@ async function createPoll(userId, circleId, body = {}) {
   return pollView(updated.polls.find((item) => String(item._id) === String(poll._id)));
 }
 
+async function closePoll(userId, circleId, pollId) {
+  const circle = await loadCircle(circleId);
+  await requireOrganizer(circle, userId);
+  const pollObjectId = objectId(pollId, "circle_poll_not_found");
+  if (!(circle.polls || []).some((poll) => String(poll._id) === String(pollObjectId))) {
+    throw httpError(404, "circle_poll_not_found");
+  }
+  const now = new Date();
+  const updated = await Circle.findOneAndUpdate(
+    {
+      _id: circle._id,
+      deletedAt: null,
+      polls: { $elemMatch: { _id: pollObjectId, status: "active", closesAt: { $gt: now } } },
+    },
+    { $set: { "polls.$.status": "closed", "polls.$.closesAt": now } },
+    { new: true, runValidators: true },
+  );
+  if (!updated) throw httpError(409, "poll_closed");
+  const poll = updated.polls.find((item) => String(item._id) === String(pollObjectId));
+  const summaries = await pollVoteSummaries([updated], userId);
+  return pollViewForViewer(poll, summaries.get(`${updated._id}:${poll._id}`), now);
+}
+
 async function votePoll(userId, circleId, pollId, optionIndex) {
   if (optionIndex === undefined) {
     optionIndex = pollId;
@@ -1189,6 +1220,16 @@ async function listPolls(userId, circleId, req) {
   };
 }
 
+async function getPoll(userId, circleId, pollId, isAdmin = false) {
+  const circle = await loadCircle(circleId);
+  if (!isAdmin) await requireMember(circle, userId);
+  const pollObjectId = objectId(pollId, "circle_poll_not_found");
+  const poll = (circle.polls || []).find((item) => String(item._id) === String(pollObjectId));
+  if (!poll) throw httpError(404, "circle_poll_not_found");
+  const summaries = await pollVoteSummaries([circle], userId);
+  return { ...pollViewForViewer(poll, summaries.get(`${circle._id}:${poll._id}`)), circleId: idStr(circle._id) };
+}
+
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -1219,6 +1260,8 @@ module.exports = {
   transferOrganizer,
   deleteCircle,
   createPoll,
+  closePoll,
   listPolls,
+  getPoll,
   votePoll,
 };
