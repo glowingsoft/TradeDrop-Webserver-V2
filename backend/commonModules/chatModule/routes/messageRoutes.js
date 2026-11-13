@@ -1,6 +1,7 @@
 const express = require("express");
 const {
   fetchChats,
+  fetchUnifiedChats,
   fetchMessages,
   sendMessage,
   deleteChat,
@@ -26,6 +27,7 @@ const addParticipantRateLimiter = createRateLimiter("addParticipant", 5, 20);
 
 // Fetch conversations (chats)
 router.get("/", conversationsRateLimiter, fetchChats);
+router.get("/chat", conversationsRateLimiter, fetchUnifiedChats);
 router.get("/rooms", conversationsRateLimiter, fetchAllRooms); // Fetch all chat rooms
 // Fetch a specific conversation by its ID
 

@@ -125,6 +125,14 @@ describe("sent activity tap-ins", () => {
       userId: inviteeId,
       invitedBy: viewerId,
       status: "invited",
+      createdAt: new Date("2026-01-03"),
+    };
+    const joinRequest = {
+      _id: new mongoose.Types.ObjectId(),
+      circleId: requestedCircleId,
+      userId: viewerId,
+      status: "withdrawn",
+      createdAt: new Date("2026-01-02"),
     };
     const saved = [];
     const override = (model, method, replacement) => {
@@ -132,13 +140,17 @@ describe("sent activity tap-ins", () => {
       model[method] = replacement;
     };
     try {
-      override(CircleMember, "distinct", async (field, filter) =>
-        filter.invitedBy === viewerId && filter.status === "invited" ? [circleId] : [],
+      override(CircleMember, "distinct", async (_field, filter) =>
+        filter.invitedBy === viewerId && filter.status === "invited"
+          ? [circleId]
+          : filter.userId === viewerId
+            ? [requestedCircleId]
+            : [],
       );
       override(CircleMember, "find", (filter) =>
         filter.status === "invited"
           ? query([invitation])
-          : query([{ circleId: requestedCircleId, status: "withdrawn" }]),
+          : query([joinRequest]),
       );
       override(CircleMember, "countDocuments", async () => 1);
       override(Circle, "find", (filter) =>
@@ -161,19 +173,24 @@ describe("sent activity tap-ins", () => {
 
       const { body } = await supertest(app).get("/activity/sent").expect(200);
       assert.deepEqual(body.data.circleInvitations[0], {
+        requestId: String(invitation._id),
         circleId: String(circleId),
-        name: "Circle",
+        circleName: "Circle",
         recipientId: {
           _id: String(inviteeId),
           name: "Invitee",
           profileIcon: "https://images.example.com/invitee.png",
         },
         status: "invited",
+        createdAt: invitation.createdAt.toISOString(),
       });
-      assert.deepEqual(body.data.circleRequests[0], {
+      assert.deepEqual(body.data.circleJoinRequests[0], {
+        requestId: String(joinRequest._id),
         circleId: String(requestedCircleId),
-        name: "Requested circle",
+        circleName: "Requested circle",
+        requesterId: String(viewerId),
         status: "withdrawn",
+        createdAt: joinRequest.createdAt.toISOString(),
       });
       assert.equal(body.meta.circleInvitations.totalRecords, 1);
     } finally {

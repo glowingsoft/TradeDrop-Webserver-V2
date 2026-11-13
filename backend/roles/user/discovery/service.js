@@ -1,8 +1,6 @@
 const circleService = require("../circles/service");
 const eventService = require("../events/service");
-const { getAllDrops } = require("../drops/service");
-const { excludedUserIds } = require("../radar/radarService");
-const { dropExpiredFilter } = require("../_shared/tradeShared");
+const { listRadarPeople, excludedUserIds } = require("../radar/radarService");
 const { httpError } = require("../_shared/serialize");
 
 async function forYou(req) {
@@ -30,21 +28,15 @@ async function forYou(req) {
     delete query.lng;
   }
   const scopedReq = { ...req, query };
-  const [circles, events, drops] = await Promise.all([
+  const [circles, events, people] = await Promise.all([
     circleService.listCircles(scopedReq, { excludeUserIds: excluded }),
     eventService.listEvents(scopedReq, { excludeUserIds: excluded }),
-    getAllDrops(scopedReq, {
-      extraConditions: [
-        { status: "open" },
-        dropExpiredFilter(),
-        ...(excluded.length ? [{ ownerId: { $nin: excluded } }] : []),
-      ],
-    }),
+    listRadarPeople(scopedReq),
   ]);
   return {
-    nearbyCircles: circles,
-    nearbyEvents: events,
-    nearbyDrops: drops,
+    nearbyCircles: circles?.data,
+    nearbyEvents: events?.data,
+    nearbyPeople: people?.data,
   };
 }
 

@@ -1,6 +1,7 @@
 const repo = require("./mongoCatalogRepository");
 const timingChipRepo = require("./mongoTimingChipRepository");
-const Conversation = require("../../../commonModules/chatModule/models/Conversation");
+const { normalizeInterests } = require("../_shared/interests");
+const { User } = require("@UsersModel");
 
 function AppError(translationKey, statusCode = 400) {
   const err = new Error(translationKey);
@@ -17,9 +18,17 @@ async function getCategories(req, filter = {}) {
   return repo.getCategories({ req, filter });
 }
 
-// Admin: Create or update category with automatic conversation group
+async function getOtherCategoryInterests(req) {
+  const user = await User.findById(req.user._id).select("crafts deletedAt").lean();
+  if (!user || user.deletedAt) throw AppError("account_not_found", 401);
+  return repo.getCategories({
+    req,
+    filter: { status: "active", _id: { $nin: user.crafts || [] } },
+  });
+}
+
 async function createOrUpdateCategory(data = {}) {
-  const { slug, name, parentId, chipGroup, image, sortOrder, active } = data;
+  const { slug, name, parentId, interests, image, sortOrder, active } = data;
 
   if (!slug || !String(slug).trim()) {
     throw AppError("category_slug_required", 400);
@@ -27,62 +36,24 @@ async function createOrUpdateCategory(data = {}) {
   if (!name || !String(name).trim()) {
     throw AppError("category_name_required", 400);
   }
-  if (!chipGroup) {
-    throw AppError("category_chipgroup_invalid", 400);
-  }
-
   const categoryData = {
     slug: String(slug).toLowerCase().trim(),
     name: String(name).trim(),
-    chipGroup,
+    ...(interests !== undefined ? { interests: normalizeInterests(interests, "category_interests_invalid") } : {}),
     active: active !== undefined ? Boolean(active) : true,
     image: image || "noimg.png",
     sortOrder: sortOrder !== undefined ? Number(sortOrder) : 0,
     parentId: parentId || null,
   };
 
-  // Create or update category
   let category = await repo.findCategoryBySlug(categoryData.slug);
   if (category) {
-    // Update existing
     category = await repo.updateCategory(category._id, categoryData);
   } else {
-    // Create new
     category = await repo.createCategory(categoryData);
   }
 
-  // Ensure conversation group exists for this category (with empty participants)
-  const conversationName = `${chipGroup.toUpperCase()}: ${name}`;
-  let conversation = await Conversation.findOne({
-    type: "group",
-    groupName: conversationName,
-  }).lean();
-
-  if (!conversation) {
-    conversation = await Conversation.create({
-      type: "group",
-      groupName: conversationName,
-      participants: [], // Empty participants initially
-      admins: [],
-      groupMetadata: {
-        description: `Category group for ${name}`,
-      },
-      groupSettings: {
-        canMessage: true,
-        isPrivate: false,
-      },
-    });
-  }
-
-  return {
-    category: repo.toPublic(category),
-    conversation: {
-      _id: conversation._id,
-      groupName: conversation.groupName,
-      type: conversation.type,
-      participants: conversation.participants,
-    },
-  };
+  return { category: repo.toPublic(category) };
 }
 
 async function listAllCategories() {
@@ -115,12 +86,7 @@ async function updateCategory(categoryId, data = {}) {
     patch.slug = slug;
   }
 
-  if (data.chipGroup !== undefined) {
-    if (!["all", "photo", "makeup", "hair", "video"].includes(data.chipGroup)) {
-      throw AppError("category_chipgroup_invalid", 400);
-    }
-    patch.chipGroup = data.chipGroup;
-  }
+  if (data.interests !== undefined) patch.interests = normalizeInterests(data.interests, "category_interests_invalid");
 
   if (data.image !== undefined) patch.image = data.image || "noimg.png";
   if (data.sortOrder !== undefined) patch.sortOrder = Number(data.sortOrder) || 0;
@@ -225,6 +191,7 @@ async function updateAppSettings(data = {}) {
 module.exports = {
   listCategories,
   getCategories,
+  getOtherCategoryInterests,
   createOrUpdateCategory,
   listAllCategories,
   updateCategory,

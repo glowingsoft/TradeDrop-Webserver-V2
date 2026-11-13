@@ -34,6 +34,7 @@ module.exports = {
     { name: "Circles", description: "Circle membership, discussions, and polls" },
     { name: "Events", description: "Circle events and embedded RSVPs" },
     { name: "Messaging", description: "Participant-authorized personal, Circle, and project chats" },
+    { name: "Notifications", description: "User notification inbox" },
     { name: "Activity", description: "Received, sent, and work activity" },
     { name: "Reports", description: "User reports and staff moderation" },
   ],
@@ -261,7 +262,78 @@ module.exports = {
       get: {
         tags: ["Catalog"],
         summary: "List categories (API-010)",
-        responses: { 200: { description: "Active launch categories" } },
+        responses: { 200: { description: "Active categories, each with an interests string array" } },
+      },
+    },
+    "/categories/interests": {
+      get: {
+        tags: ["Catalog"],
+        summary: "List interests grouped by categories outside the caller's crafts",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1 } },
+          { name: "keyword", in: "query", schema: { type: "string" } },
+          { name: "parentId", in: "query", schema: { type: "string" } },
+        ],
+        responses: {
+          200: { description: "Paginated active categories excluding the caller's craft IDs; each includes its interests array, including empty arrays." },
+          401: { description: "Authentication required or account unavailable" },
+        },
+      },
+    },
+    "/admin/catalog/categories": {
+      post: {
+        tags: ["Catalog"],
+        security: [{ bearerAuth: [] }],
+        summary: "Create or update a category by slug",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["slug", "name"],
+                properties: {
+                  slug: { type: "string" },
+                  name: { type: "string" },
+                  interests: { type: "array", items: { type: "string", minLength: 1 } },
+                  parentId: { type: "string", nullable: true },
+                  image: { type: "string" },
+                  sortOrder: { type: "number" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: "Category saved in data.category; no conversation group is created" },
+          400: { description: "Invalid category or interests" },
+        },
+      },
+    },
+    "/admin/catalog/categories/{id}": {
+      put: {
+        tags: ["Catalog"],
+        security: [{ bearerAuth: [] }],
+        summary: "Update category fields, including interests",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  interests: { type: "array", items: { type: "string", minLength: 1 } },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: "Updated category; an empty interests array clears existing interests" },
+          400: { description: "Invalid category or interests" },
+        },
       },
     },
     "/drops": {
@@ -388,6 +460,80 @@ module.exports = {
       },
     },
     "/drops/{id}/tap-ins": {
+      get: {
+        tags: ["Tap-ins"],
+        summary: "Manage Tap-ins for a Drop (owner only)",
+        description:
+          "Lists non-withdrawn Tap-ins for an existing Drop, including closed Drops. Direct requests created " +
+          "by the owner are included, so their requester is the owner. Counts cover every status regardless of the filter.",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["all", "pending", "accepted", "declined", "closed"] } },
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100 } },
+        ],
+        responses: {
+          200: {
+            description: "Paginated Tap-ins and requester profiles with status counts",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    data: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          _id: { type: "string" },
+                          dropId: { type: "string" },
+                          requesterId: { type: "string" },
+                          responderId: { type: "string" },
+                          notes: { type: "string" },
+                          status: { type: "string", enum: ["pending", "accepted", "declined", "closed"] },
+                          withdrawn: { type: "boolean" },
+                          tradeId: { type: "string", nullable: true },
+                          createdAt: { type: "string", format: "date-time" },
+                          updatedAt: { type: "string", format: "date-time" },
+                          requester: {
+                            type: "object",
+                            nullable: true,
+                            properties: {
+                              _id: { type: "string" },
+                              name: { type: "string" },
+                              handle: { type: "string" },
+                              profileIcon: { type: "string" },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    meta: {
+                      type: "object",
+                      properties: {
+                        currentPage: { type: "integer" },
+                        totalPages: { type: "integer" },
+                        totalRecords: { type: "integer", description: "Total matching the status filter" },
+                        limit: { type: "integer" },
+                        counts: {
+                          type: "object",
+                          properties: Object.fromEntries(
+                            ["all", "pending", "accepted", "declined", "closed"].map((key) => [key, { type: "integer" }]),
+                          ),
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: "Invalid status" },
+          403: { description: "Caller is not the Drop owner" },
+          404: { description: "Drop not found" },
+        },
+      },
       post: {
         tags: ["Tap-ins"],
         summary: "Create tap-in (API-040)",
@@ -538,7 +684,12 @@ module.exports = {
         tags: ["Profile"],
         summary: "Self profile (API-020)",
         security: [{ bearerAuth: [] }],
-        responses: { 200: { description: "Full self profile" } },
+        responses: {
+          200: {
+            description:
+              "Full self profile, including interests, Circle and connection summaries, savedUserCount, and blockedUserCount.",
+          },
+        },
       },
       patch: {
         tags: ["Profile"],
@@ -552,6 +703,7 @@ module.exports = {
                 properties: {
                   name: { type: "string" },
                   bio: { type: "string" },
+                  interests: { type: "array", items: { type: "string", minLength: 1 }, description: "Replaces the interests list; send [] to clear it." },
                   profileIcon: { type: "string" },
                   imageUrl: { type: "string", description: "Alias for profileIcon" },
                   onboarding: {
@@ -585,7 +737,7 @@ module.exports = {
             },
           },
         },
-        responses: { 200: { description: "Updated" }, 409: { description: "Duplicate handle" } },
+        responses: { 200: { description: "Updated profile including interests" }, 400: { description: "Invalid profile fields or interests" }, 409: { description: "Duplicate handle" } },
       },
       delete: {
         tags: ["Profile"],
@@ -764,7 +916,7 @@ module.exports = {
         tags: ["Radar"],
         summary: "Radar person details, connection state and public open Drops",
         description:
-          "Returns a visible radar profile with connectionCount, connectionStatus, requestSent and requestId. " +
+          "Returns a visible radar profile with isFavorite (whether the caller favorited this person), connectionCount, connectionStatus, requestSent and requestId. " +
           "connectionId contains the active connection ID, or the outgoing request ID when a request is pending. " +
           "latestConnections contains up to two active connection profiles visible to the viewer, ordered by most recently updated. " +
           "mutualCollaborationCount counts active and completed collaborations between the viewer and the person. " +
@@ -794,6 +946,7 @@ module.exports = {
                         name: { type: "string" },
                         handle: { type: "string" },
                         profileIcon: { type: "string" },
+                        isFavorite: { type: "boolean" },
                         hasConnection: { type: "boolean" },
                         connectionId: { type: "string", nullable: true },
                         requestId: { type: "string", nullable: true },
@@ -895,13 +1048,19 @@ module.exports = {
     "/for-you": {
       get: {
         tags: ["Radar"],
-        summary: "Nearby Circles, Events, and Drops; set anywhere=true to remove the location restriction",
+        summary: "Nearby Circles, Events, and People; set anywhere=true to remove the location restriction",
+        security: [{ bearerAuth: [] }],
         parameters: [
           { name: "lat", in: "query", schema: { type: "number" } },
           { name: "lng", in: "query", schema: { type: "number" } },
           { name: "anywhere", in: "query", schema: { type: "boolean" } },
         ],
-        responses: { 200: { description: "Paginated discovery results" } },
+        responses: {
+          200: {
+            description:
+              "Paginated circles, events, and people. People include connection status and whether a connection request can be sent.",
+          },
+        },
       },
     },
     "/activity/{tab}": {
@@ -917,7 +1076,7 @@ module.exports = {
         responses: {
           200: {
             description:
-              "Activity payload and pagination metadata. Circle and Event requests include their current status; sent Circle requests include pending and withdrawn statuses. In received, circleRequests.creatorId, eventRequests.userId and tapIns.requesterId contain _id, name and profileIcon; tapIns.dropId and latestRequests tap-in dropId contain _id, title and idea. In sent, circleInvitations.recipientId and tapIns.responderId contain _id, name and profileIcon, and tapIns.dropId contains _id, title and idea. Missing references are null.",
+              "Activity payload and pagination metadata. Received and sent Circle activity uses separate circleJoinRequests and circleInvitations arrays; each entry identifies one membership request/invite with requestId, circleId, status and participant details. eventRequests contains one entry per RSVP with eventId, requestId, status and requesterId. In received, circleJoinRequests.requesterId, circleInvitations.inviterId, eventRequests.requesterId and tapIns.requesterId contain _id, name and profileIcon; in sent, circleInvitations.recipientId and tapIns.responderId contain _id, name and profileIcon. tapIns.dropId and latestRequests tap-in dropId contain _id, title and idea. Missing references are null.",
           },
         },
       },
@@ -997,7 +1156,12 @@ module.exports = {
       get: {
         tags: ["Connections"],
         security: [{ bearerAuth: [] }],
-        responses: { 200: { description: "Latest five connections, pending requests, Circles, open Drops, and saved people" } },
+        responses: {
+          200: {
+            description:
+              "Latest five connections include populated crafts; pending request requesterId and recipientId include _id, name, and profileIcon. Also returns Circles, open Drops, and saved people.",
+          },
+        },
       },
     },
     "/me/collaborations": {
@@ -1057,6 +1221,8 @@ module.exports = {
       get: {
         tags: ["Circles"],
         summary: "Discover nearby Open and Approval Circles",
+        description:
+          "Each result includes viewerRole: organizer or member for an active membership, otherwise none (including anonymous viewers and pending invitations or requests).",
         parameters: [
           { in: "query", name: "page", schema: { type: "integer", minimum: 1 } },
           { in: "query", name: "limit", schema: { type: "integer", minimum: 1, maximum: 100 } },
@@ -1110,7 +1276,12 @@ module.exports = {
     "/circles/{id}": {
       get: {
         tags: ["Circles"],
-        responses: { 200: { description: "Circle details, member roles, two latest published Events, and open member Drops" } },
+        responses: {
+          200: {
+            description:
+              "Circle details, viewerMembership (null or the caller's membership ID, role, status and joinedAt), member roles, two latest published Events, up to two newest active polls in latestPolls (including myVote), and open member Drops. Existing polls and poll fields are unchanged.",
+          },
+        },
       },
       patch: {
         tags: ["Circles"],
@@ -1204,10 +1375,42 @@ module.exports = {
       },
     },
     "/circles/{id}/polls": {
+      get: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["active", "closed"] } },
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1 } },
+        ],
+        responses: {
+          200: { description: "Newest-first polls with voteCount, per-option voteCounts, and the viewer's myVote" },
+        },
+      },
       post: {
         tags: ["Circles"],
         security: [{ bearerAuth: [] }],
-        responses: { 201: { description: "Create a Circle poll; up to three can be active, with a default two-day duration" } },
+        responses: {
+          201: { description: "Create a Circle poll; only one can be active, with a default two-day duration" },
+          409: { description: "The Circle already has an active poll" },
+        },
+      },
+    },
+    "/circles/{id}/polls/{pollId}": {
+      get: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        summary: "Get a Circle poll by its ID",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "pollId", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          200: { description: "Poll with circleId, status, voteCount, voteCounts, and the viewer's myVote" },
+          403: { description: "Caller is not an active Circle member" },
+          404: { description: "Circle or poll not found" },
+        },
       },
     },
     "/circles/{id}/polls/{pollId}/vote": {
@@ -1221,6 +1424,23 @@ module.exports = {
         responses: { 200: { description: "Vote once in the specified active Circle poll" } },
       },
     },
+    "/circles/{id}/polls/{pollId}/close": {
+      post: {
+        tags: ["Circles"],
+        security: [{ bearerAuth: [] }],
+        summary: "Close an active Circle poll early (organizer only)",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "pollId", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          200: { description: "Closed poll with actual closesAt, vote counts, and the caller's myVote" },
+          403: { description: "Caller is not an active Circle organizer" },
+          404: { description: "Circle or poll not found" },
+          409: { description: "Poll is already closed or expired" },
+        },
+      },
+    },
     "/circles/{id}/polls/vote": {
       post: {
         tags: ["Circles"],
@@ -1231,6 +1451,8 @@ module.exports = {
     "/events": {
       get: {
         tags: ["Events"],
+        description:
+          "Each result includes viewerRole: organizer or member for an active membership in the Event's Circle, otherwise none.",
         responses: { 200: { description: "Published Events visible under Circle audience rules" } },
       },
       post: {
@@ -1262,7 +1484,11 @@ module.exports = {
     "/events/{id}": {
       get: {
         tags: ["Events"],
-        responses: { 200: { description: "Event details and relevant open Circle-member Drops" } },
+        responses: {
+          200: {
+            description: "Event details include circle {_id, name, creator: {_id, name, profileIcon} or null}, myRsvp and viewerRsvp {status, hasPlace, canRsvp, canCancelRsvp}, plus relevant open Circle-member Drops. Anonymous viewers cannot RSVP; pending and waitlist are not confirmed places.",
+          },
+        },
       },
       patch: {
         tags: ["Events"],
@@ -1282,6 +1508,24 @@ module.exports = {
         tags: ["Events"],
         security: [{ bearerAuth: [] }],
         responses: { 200: { description: "Cancel Event" } },
+      },
+    },
+    "/events/{id}/rsvps": {
+      get: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        summary: "List Event RSVPs and viewer-specific connection status",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["going", "pending", "waitlist", "cancelled"] } },
+          { name: "page", in: "query", schema: { type: "integer", minimum: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1 } },
+        ],
+        responses: {
+          200: { description: "Paginated RSVPs with user profile and connection status. Organizers and admins see all; active members and going participants see only going attendees who opted in. Connection requests are disabled when either user has blocked the other." },
+          403: { description: "Viewer is not eligible or requested an organizer-only RSVP status" },
+          404: { description: "Event unavailable to viewer" },
+        },
       },
     },
     "/events/{id}/rsvp": {
@@ -1322,48 +1566,79 @@ module.exports = {
       },
     },
     "/circles/{circleId}/event-suggestions": {
+      post: {
+        tags: ["Events"],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ name: "circleId", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["name"],
+                properties: { name: { type: "string", maxLength: 160 } },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: "Send the Circle creator a notification with the suggested Event name" },
+        },
+      },
+    },
+    "/notifications": {
       get: {
-        tags: ["Events"],
+        tags: ["Notifications"],
         security: [{ bearerAuth: [] }],
-        parameters: [{ name: "circleId", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "Organizer-visible Event suggestions" } },
-      },
-      post: {
-        tags: ["Events"],
-        security: [{ bearerAuth: [] }],
-        parameters: [{ name: "circleId", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 201: { description: "Submit an Event suggestion for organizer approval" } },
-      },
-    },
-    "/events/{id}/suggestion/approve": {
-      post: {
-        tags: ["Events"],
-        security: [{ bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "Organizer approves an Event suggestion as a draft" } },
+        summary: "List the caller's notifications",
+        description:
+          "Events includes event and event_suggestion. Requests includes connection_request, circle_request, circle_invitation and tap_in. Event RSVP requests have type event and appear under Events.",
+        parameters: [
+          { in: "query", name: "filter", schema: { type: "string", enum: ["all", "events", "requests"], default: "all" } },
+          { in: "query", name: "keyword", description: "Matches the notification type", schema: { type: "string" } },
+          { in: "query", name: "page", schema: { type: "integer", minimum: 1 } },
+          { in: "query", name: "limit", schema: { type: "integer", minimum: 1, maximum: 100 } },
+        ],
+        responses: {
+          200: { description: "Paginated notifications" },
+          400: { description: "Invalid filter" },
+        },
       },
     },
-    "/events/{id}/suggestion/decline": {
-      post: {
-        tags: ["Events"],
+    "/notifications/read-all": {
+      put: {
+        tags: ["Notifications"],
         security: [{ bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "Organizer declines an Event suggestion" } },
-      },
-    },
-    "/events/{id}/suggestion": {
-      delete: {
-        tags: ["Events"],
-        security: [{ bearerAuth: [] }],
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-        responses: { 200: { description: "Organizer removes an Event suggestion" } },
+        summary: "Mark all the caller's unread notifications as read",
+        responses: { 200: { description: "data.modifiedCount is the number of notifications updated; zero if none were unread" } },
       },
     },
     "/conversations": {
       get: {
         tags: ["Messaging"],
         security: [{ bearerAuth: [] }],
-        responses: { 200: { description: "Caller-visible conversations" } },
+        responses: { 200: { description: "Caller-visible conversations; project chats include dropId and otherUser {_id, name, profileIcon}, or null when unavailable" } },
+      },
+    },
+    "/conversations/chat": {
+      get: {
+        tags: ["Messaging"],
+        security: [{ bearerAuth: [] }],
+        summary: "List the caller's conversations by category",
+        description:
+          "All includes direct, joined Circle and active collaboration chats. Collaborations lists active trade chats. Circle chats require active Circle membership; public rooms the caller has not joined and completed or cancelled trade chats are excluded. The default inbox state includes default and favorite chats.",
+        parameters: [
+          { in: "query", name: "category", schema: { type: "string", enum: ["all", "people", "circles", "collaborations"], default: "all" } },
+          { in: "query", name: "page", schema: { type: "integer", minimum: 1 } },
+          { in: "query", name: "limit", schema: { type: "integer", minimum: 1, maximum: 100 } },
+          { in: "query", name: "keyword", schema: { type: "string" } },
+          { in: "query", name: "chatState", schema: { type: "string", enum: ["inbox", "favorite", "archived", "blocked"] } },
+        ],
+        responses: {
+          200: { description: "Paginated conversations; project chats include dropId and otherUser {_id, name, profileIcon}, or null when unavailable" },
+          400: { description: "Invalid category" },
+        },
       },
     },
     "/conversations/messages": {
@@ -1383,6 +1658,8 @@ module.exports = {
       post: {
         tags: ["Messaging"],
         security: [{ bearerAuth: [] }],
+        description:
+          "Recipients' unread counts increase even when they are connected to the chat socket. The chatUpdated event contains each recipient's unreadCount; fetching the conversation's messages marks them read. Existing collaboration conversations may be sent with conversationType direct or project and their conversationId; trade-participant access rules still apply.",
         requestBody: {
           required: true,
           content: {

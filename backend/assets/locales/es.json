@@ -1,3 +1,13 @@
 {
-	"data_fetched": "Recuperado con éxito"
+	"data_fetched": "Recuperado con éxito",
+	"category_interests_invalid": "Los intereses de la categoría deben ser una lista de textos no vacíos",
+	"user_interests_invalid": "Los intereses del usuario deben ser una lista de textos no vacíos",
+	"tap_in_status_invalid": "Estado de Tap In no válido",
+	"event_rsvps_fetched": "Confirmaciones del evento obtenidas correctamente",
+	"event_attendees_forbidden": "No puedes ver estos asistentes al evento",
+	"event_rsvp_status_invalid": "Estado de confirmación del evento no válido",
+	"circle_poll_closed": "Encuesta del círculo cerrada correctamente",
+	"circle_poll_fetched": "Encuesta del círculo obtenida correctamente",
+	"circle_poll_not_found": "Encuesta del círculo no encontrada",
+	"poll_closed": "La encuesta está cerrada"
 }

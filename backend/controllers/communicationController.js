@@ -155,26 +155,20 @@ const sendUserNotifications = async ({
       if (!recipientIds?.length) {
         return;
       }
-      const notificationsToSave = recipientIds.map((userId) => ({
-        type: data.type || "system",
-        subjectId: sender,
-        objectId,
-        objectType: data.objectType || "general",
-        receiverId: userId,
-        image,
-        title,
-        body,
-        meta,
-      }));
-
-      await NotificationExp.insertMany(notificationsToSave);
-
-      return {
-        message: "send successfully",
-        data: {
-          recipientIds: recipientIds?.length,
-        },
-      };
+      if (saveNotification) {
+        const notificationsToSave = recipientIds.map((userId) => ({
+          type: data.type || "system",
+          subjectId: sender,
+          objectId,
+          objectType: data.objectType || "general",
+          receiverId: userId,
+          image,
+          title,
+          body,
+          meta,
+        }));
+        await NotificationExp.insertMany(notificationsToSave);
+      }
 
       const recipientDevices = await Devices.find({
         userId: { $in: recipientIds },
@@ -200,7 +194,7 @@ const sendUserNotifications = async ({
         });
       });
 
-      const tokens = [...userTokens.values()].flatMap((tokenSet) => [...tokenSet]);
+      const tokens = [...new Set([...userTokens.values()].flatMap((tokenSet) => [...tokenSet]))];
 
       if (tokens.length) {
         const dataWithStringValues = Object.fromEntries(
@@ -236,7 +230,7 @@ const sendUserNotifications = async ({
           tokenChunks.push(tokens.slice(i, i + 500));
         }
 
-        await Promise.all(
+        const results = await Promise.all(
           tokenChunks.map((chunk) =>
             adminFireBConfig.messaging().sendEachForMulticast({
               tokens: chunk,
@@ -244,25 +238,9 @@ const sendUserNotifications = async ({
             }),
           ),
         );
+        const failed = results.reduce((count, result) => count + result.failureCount, 0);
+        if (failed) console.error(`Firebase push delivery failed for ${failed} device(s).`);
       }
-
-      if (!saveNotification) {
-        return;
-      }
-
-      // const notificationsToSave = recipientIds.map((userId) => ({
-      //   type: data.type || "system",
-      //   subjectId: sender,
-      //   objectId,
-      //   objectType: data.objectType || "general",
-      //   receiverId: userId,
-      //   image,
-      //   title,
-      //   body,
-      //   meta,
-      // }));
-
-      // await NotificationExp.insertMany(notificationsToSave);
     } catch (error) {
       console.error("Error sending notifications in background:", error);
     }

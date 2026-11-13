@@ -25,6 +25,15 @@ const getCategories = async (req, res) => {
   }
 };
 
+const getOtherCategoryInterests = async (req, res) => {
+  try {
+    const { data, meta } = await catalogService.getOtherCategoryInterests(req);
+    return sendResponse({ res, statusCode: 200, translationKey: "categories_fetched", data, meta });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
 const getTimingChips = async (req, res) => {
   try {
     const data = await catalogService.listTimingChips({ filter: { status: "active" } });
@@ -50,6 +59,7 @@ async function getAppSettings(req, res, next) {
 
 module.exports = {
   getCategories,
+  getOtherCategoryInterests,
   getTimingChips,
   getAppSettings,
 };

@@ -318,6 +318,7 @@ const userSchema = new mongoose.Schema(
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
       default: [],
     },
+    interests: { type: [String], default: [] },
     links: {
       type: [
         {

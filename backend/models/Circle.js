@@ -10,13 +10,7 @@ const pollSchema = new mongoose.Schema({
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   closesAt: { type: Date, required: true },
   status: { type: String, enum: ["active", "closed"], default: "active" },
-  votes: [
-    {
-      userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-      optionIndex: { type: Number, required: true },
-      votedAt: { type: Date, default: Date.now },
-    },
-  ],
+  voteVersion: { type: Number, default: 0 },
 });
 
 const circleSchema = new mongoose.Schema(

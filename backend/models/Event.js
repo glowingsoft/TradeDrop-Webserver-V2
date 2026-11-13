@@ -14,8 +14,6 @@ const eventSchema = new mongoose.Schema(
   {
     circleId: { type: mongoose.Schema.Types.ObjectId, ref: "Circle", required: true, index: true },
     creatorId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    suggestedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
-    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     name: { type: String, required: true, trim: true, maxlength: 160 },
     purpose: { type: String, default: "", trim: true, maxlength: 5000 },
     date: { type: Date, default: null },
@@ -37,7 +35,6 @@ const eventSchema = new mongoose.Schema(
     capacity: { type: Number, min: 1, default: null },
     locationLabel: { type: String, default: "", trim: true },
     status: { type: String, enum: ["draft", "published", "cancelled"], default: "draft", index: true },
-    suggestionStatus: { type: String, enum: ["pending", "approved", "declined", null], default: null },
     rsvps: { type: [rsvpSchema], default: [] },
     publishedAt: { type: Date, default: null },
     cancelledAt: { type: Date, default: null },

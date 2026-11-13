@@ -35,8 +35,14 @@ module.exports = {
   ),
   delete: one(200, "circle_deleted", (req) => service.deleteCircle(req.user._id, req.params.id)),
   listPolls: list("circle_polls_fetched", (req) => service.listPolls(req.user._id, req.params.id, req)),
+  getPoll: one(200, "circle_poll_fetched", (req) =>
+    service.getPoll(req.user._id, req.params.id, req.params.pollId, isAdminUser(req.user)),
+  ),
   createPoll: one(201, "circle_poll_created", (req) =>
     service.createPoll(req.user._id, req.params.id, req.body || {}),
+  ),
+  closePoll: one(200, "circle_poll_closed", (req) =>
+    service.closePoll(req.user._id, req.params.id, req.params.pollId),
   ),
   votePoll: one(200, "circle_poll_voted", (req) =>
     service.votePoll(req.user._id, req.params.id, req.params.pollId || req.body?.pollId, req.body?.optionIndex),

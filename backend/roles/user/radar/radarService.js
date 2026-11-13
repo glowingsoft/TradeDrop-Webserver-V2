@@ -12,6 +12,7 @@ const { getConnectionStatuses } = require("@helperUtils/connectionUtil");
 const { getUserDetails } = require("../_shared/userDetails");
 const { Drop } = require("@models/Drop");
 const { getFullImageUrl } = require("@helperUtils/imageHelper");
+const { Favorites } = require("@backend/commonModules/favorites/Favorite");
 
 function AppError(translationKey, statusCode = 400) {
   const err = new Error(translationKey);
@@ -395,15 +396,19 @@ async function getRadarPerson(req) {
   const user = await getUserDetails(viewerId, req.params.id);
   const { page, limit } = parsePaginationParams(req);
   const dropQuery = { ...publicDropFilter(), ownerId: user._id };
-  const drops = await Drop.find(dropQuery)
-    .sort({ createdAt: -1, _id: -1 })
-    .skip((page - 1) * limit)
-    .limit(limit)
-    .populate("timingChip", "value label")
-    .lean();
+  const [drops, favorite] = await Promise.all([
+    Drop.find(dropQuery)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .populate("timingChip", "value label")
+      .lean(),
+    Favorites.exists({ user: viewerId, target: user._id }),
+  ]);
   return {
     ...user,
     connectionId: user.connectionId || user.requestId,
+    isFavorite: Boolean(favorite),
     openDrops: drops.map((drop) => toDropView(drop, viewerId)),
   };
 }
