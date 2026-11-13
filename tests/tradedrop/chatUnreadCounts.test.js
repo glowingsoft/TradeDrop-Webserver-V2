@@ -8,6 +8,7 @@ require("../helpers/registerAliases");
 const Conversation = require("../../backend/commonModules/chatModule/models/Conversation");
 const Message = require("../../backend/commonModules/chatModule/models/Message");
 const { User } = require("../../backend/models/UserModel");
+const Trade = require("../../backend/models/Trade");
 const connectionUtil = require("../../backend/helperUtils/connectionUtil");
 const communication = require("../../backend/controllers/communicationController");
 const engagement = require("../../backend/commonModules/appEngagement/engagementEventsService");
@@ -24,6 +25,10 @@ describe("Chat unread counts", () => {
   let conversation;
   let emitted;
   let presenceChecks;
+  let blocked;
+  let connected;
+  let trade;
+  let tradeFilter;
   let app;
 
   before(() => {
@@ -35,14 +40,15 @@ describe("Chat unread counts", () => {
       [Message, "find", "find"],
       [Message, "countDocuments", "countDocuments"],
       [User, "findById", "userFind"],
+      [Trade, "findOne", "tradeFindOne"],
       [connectionUtil, "isBlockedBetween", "isBlocked"],
       [connectionUtil, "isActivelyConnected", "isConnected"],
       [communication, "sendUserNotifications", "notify"],
       [engagement, "logEngagementService", "engagement"],
     ]) original[name] = object[method];
     originalController = require.cache[controllerPath];
-    connectionUtil.isBlockedBetween = async () => false;
-    connectionUtil.isActivelyConnected = async () => true;
+    connectionUtil.isBlockedBetween = async () => blocked;
+    connectionUtil.isActivelyConnected = async () => connected;
     communication.sendUserNotifications = async () => {};
     engagement.logEngagementService = async () => {};
     delete require.cache[controllerPath];
@@ -68,6 +74,10 @@ describe("Chat unread counts", () => {
   beforeEach(() => {
     emitted = [];
     presenceChecks = 0;
+    blocked = false;
+    connected = true;
+    trade = { requesterId: senderId, responderId: recipientId };
+    tradeFilter = null;
     conversation = {
       _id: conversationId,
       type: "direct",
@@ -82,6 +92,10 @@ describe("Chat unread counts", () => {
       toObject: () => ({ ...data }),
     });
     User.findById = () => ({ select: () => ({ lean: async () => ({ name: "Sender" }) }) });
+    Trade.findOne = (filter) => {
+      tradeFilter = filter;
+      return { select: () => ({ lean: async () => trade }) };
+    };
   });
 
   after(() => {
@@ -92,6 +106,7 @@ describe("Chat unread counts", () => {
     Message.find = original.find;
     Message.countDocuments = original.countDocuments;
     User.findById = original.userFind;
+    Trade.findOne = original.tradeFindOne;
     connectionUtil.isBlockedBetween = original.isBlocked;
     connectionUtil.isActivelyConnected = original.isConnected;
     communication.sendUserNotifications = original.notify;
@@ -133,6 +148,41 @@ describe("Chat unread counts", () => {
     assert.equal(updates.find((item) => item.room === `user:${recipientId}`).payload.unreadCount, 4);
     assert.equal(updates.find((item) => item.room === `user:${secondRecipientId}`).payload.unreadCount, 1);
     assert.equal(conversation.unreadCounts.get(String(senderId)), 2);
+  });
+
+  it("accepts direct sends for a collaboration while retaining trade access rules", async () => {
+    conversation.type = "project";
+    conversation.tradeId = new mongoose.Types.ObjectId();
+    connected = false;
+    await send("direct");
+    assert.equal(String(tradeFilter._id), String(conversation.tradeId));
+    assert.equal(String(tradeFilter.$or[0].requesterId), String(senderId));
+    assert.equal(emitted.find((item) => item.event === "chatUpdated").payload.unreadCount, 4);
+    await send("project");
+    assert.equal(conversation.unreadCounts.get(String(recipientId)), 5);
+  });
+
+  it("rejects direct sends to blocked or unauthorized collaborations and group chats", async () => {
+    conversation.type = "project";
+    conversation.tradeId = new mongoose.Types.ObjectId();
+    const body = {
+      conversationId: String(conversationId),
+      conversationType: "direct",
+      messageType: "text",
+      messageContent: "Hello",
+    };
+    blocked = true;
+    await supertest(app).post("/message").send(body).expect(403);
+    blocked = false;
+    trade = null;
+    await supertest(app).post("/message").send(body).expect(403);
+    trade = { requesterId: senderId, responderId: recipientId };
+    conversation.participants[0].isActive = false;
+    await supertest(app).post("/message").send(body).expect(403);
+    conversation.participants[0].isActive = true;
+    conversation.type = "group";
+    await supertest(app).post("/message").send(body).expect(400);
+    assert.equal(conversation.saves, undefined);
   });
 
   it("still resets the viewer's unread count when messages are fetched", async () => {

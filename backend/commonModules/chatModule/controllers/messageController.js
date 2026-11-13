@@ -22,6 +22,7 @@ const { getUsersOnlineMap } = require("../sockets/chatPresenceRedis");
 const { sendUserNotifications } = require("../../../controllers/communicationController");
 const { logEngagementService } = require("../../appEngagement/engagementEventsService");
 const { User } = require("@UsersModel");
+const { getFullImageUrl } = require("@helperUtils/imageHelper");
 const Trade = require("@models/Trade");
 const Circle = require("@models/Circle");
 const CircleMember = require("@models/CircleMember");
@@ -292,6 +293,9 @@ const fetchChatList = async (req, res, { unified = false } = {}) => {
         chatName = otherUser?.name || "Unknown";
         chatIcon = otherUser?.profileIcon || null;
       } else {
+        if (conv.type === "project") {
+          otherUser = conv.userDetails.find((u) => u._id.toString() !== userId.toString());
+        }
         objectId = conv._id;
         chatName = conv.groupName || "Unnamed Group";
         chatIcon = conv.groupMetadata?.image || null;
@@ -304,7 +308,18 @@ const fetchChatList = async (req, res, { unified = false } = {}) => {
       return {
         conversationId: conv._id,
         type: conv.type,
-        ...(conv.type === "project" ? { dropId: conv._chatTrade?.[0]?.dropId ?? null } : {}),
+        ...(conv.type === "project"
+          ? {
+              dropId: conv._chatTrade?.[0]?.dropId ?? null,
+              otherUser: otherUser
+                ? {
+                    _id: otherUser._id,
+                    name: otherUser.name || "",
+                    profileIcon: otherUser.profileIcon ? getFullImageUrl(otherUser.profileIcon) : null,
+                  }
+                : null,
+            }
+          : {}),
         objectId,
         chatName,
         chatIcon: chatIcon ? `${process.env.S3_BASE_URL}${chatIcon}` : null,
@@ -479,16 +494,8 @@ const sendMessage = async (req, res) => {
             translationKey: "Direct conversation not found",
           });
         }
-        if (conversation.type !== "direct") {
+        if (!["direct", "project"].includes(conversation.type)) {
           return sendResponse({ res, statusCode: 400, translationKey: "Invalid direct conversation" });
-        }
-
-        if (!(await canAccessConversation(conversation, senderId, { send: true }))) {
-          return sendResponse({
-            res,
-            statusCode: 403,
-            translationKey: "connection_required_or_access_denied",
-          });
         }
       } else {
         participantIds = participantId ? [participantId] : []; // Ensure participantIds is an array
@@ -534,7 +541,13 @@ const sendMessage = async (req, res) => {
         }
       }
       if (!(await canAccessConversation(conversation, senderId, { send: true }))) {
-        return sendResponse({ res, statusCode: 403, translationKey: "connection_required_or_access_denied" });
+        return sendResponse({
+          res,
+          statusCode: 403,
+          translationKey: conversation.type === "project"
+            ? "collaboration_participant_required"
+            : "connection_required_or_access_denied",
+        });
       }
     } else if (conversationType === "group") {
       // Handle group messages

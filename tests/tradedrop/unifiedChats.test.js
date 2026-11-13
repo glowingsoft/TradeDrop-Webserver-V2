@@ -84,7 +84,7 @@ describe("Unified chat inbox", () => {
     assert.equal(pagePipeline.find((stage) => stage.$limit !== undefined).$limit, 1);
   });
 
-  it("restricts project chats to active trades involving the viewer, including in All", async () => {
+  it("restricts collaboration chats to active trades involving the viewer in All and Collaborations", async () => {
     for (const category of ["all", "collaborations"]) {
       pipelines = [];
       await supertest(app).get(`/chat?category=${category}`).expect(200);
@@ -102,13 +102,18 @@ describe("Unified chat inbox", () => {
 
   it("includes the linked Drop ID for collaboration chats in both listing routes", async () => {
     const dropId = new mongoose.Types.ObjectId();
+    const peerId = new mongoose.Types.ObjectId();
     Conversation.aggregate = async (pipeline) => {
       pipelines.push(pipeline);
       if (pipeline.some((stage) => stage.$count)) return [{ count: 2 }];
       return [
         {
           _id: conversationId, type: "project", groupName: "Collaboration",
-          userDetails: [], _chatTrade: [{ dropId }], unreadCounts: {},
+          userDetails: [
+            { _id: userId, name: "Viewer" },
+            { _id: peerId, name: "Collaborator", profileIcon: "https://example.com/avatar.png" },
+          ],
+          _chatTrade: [{ dropId }], unreadCounts: {},
         },
         {
           _id: new mongoose.Types.ObjectId(), type: "group", groupName: "Circle",
@@ -120,7 +125,14 @@ describe("Unified chat inbox", () => {
       pipelines = [];
       const { body } = await supertest(app).get(route).expect(200);
       assert.equal(body.data[0].dropId, String(dropId));
+      assert.deepEqual(body.data[0].otherUser, {
+        _id: String(peerId),
+        name: "Collaborator",
+        profileIcon: "https://example.com/avatar.png",
+      });
+      assert.equal(body.data[0].chatName, "Collaboration");
       assert.equal("dropId" in body.data[1], false);
+      assert.equal("otherUser" in body.data[1], false);
       const paginated = pipelines.find((pipeline) => pipeline.some((stage) => stage.$skip !== undefined));
       const lookup = paginated.find((stage) => stage.$lookup?.from === "trades").$lookup;
       assert.equal(lookup.pipeline[1].$project.dropId, 1);
@@ -139,6 +151,33 @@ describe("Unified chat inbox", () => {
       : [{ _id: conversationId, type: "project", userDetails: [], _chatTrade: [], unreadCounts: {} }];
     const { body } = await supertest(app).get("/legacy").expect(200);
     assert.equal(body.data[0].dropId, null);
+    assert.equal(body.data[0].otherUser, null);
+  });
+
+  it("resolves relative collaborator profile images and handles missing images", async () => {
+    const originalBase = process.env.S3_BASE_URL;
+    const peerId = new mongoose.Types.ObjectId();
+    let profileIcon = "avatar.png";
+    process.env.S3_BASE_URL = "https://images.example.com/";
+    try {
+      Conversation.aggregate = async (pipeline) => pipeline.some((stage) => stage.$count)
+        ? [{ count: 1 }]
+        : [{
+            _id: conversationId,
+            type: "project",
+            userDetails: [{ _id: userId }, { _id: peerId, name: "Peer", profileIcon }],
+            _chatTrade: [],
+            unreadCounts: {},
+          }];
+      const withImage = await supertest(app).get("/chat?category=collaborations").expect(200);
+      assert.equal(withImage.body.data[0].otherUser.profileIcon, "https://images.example.com/avatar.png");
+      profileIcon = null;
+      const withoutImage = await supertest(app).get("/chat?category=collaborations").expect(200);
+      assert.equal(withoutImage.body.data[0].otherUser.profileIcon, null);
+    } finally {
+      if (originalBase === undefined) delete process.env.S3_BASE_URL;
+      else process.env.S3_BASE_URL = originalBase;
+    }
   });
 
   it("maps categories and rejects unknown categories", async () => {
@@ -152,9 +191,14 @@ describe("Unified chat inbox", () => {
     assert.equal(pipelines.length, 0);
   });
 
-  it("defaults to all types and the inbox chat states", async () => {
-    await supertest(app).get("/chat").expect(200);
-    assert.deepEqual(pipelines[0][0].$match.type, { $in: ["direct", "group", "project"] });
-    assert.deepEqual(pipelines[0][0].$match.participants.$elemMatch.chatState.$in, ["default", "favorite"]);
+  it("includes collaborations in All and defaults to inbox chat states", async () => {
+    for (const route of ["/chat", "/chat?category=all"]) {
+      pipelines = [];
+      await supertest(app).get(route).expect(200);
+      for (const pipeline of pipelines) {
+        assert.deepEqual(pipeline[0].$match.type, { $in: ["direct", "group", "project"] });
+        assert.deepEqual(pipeline[0].$match.participants.$elemMatch.chatState.$in, ["default", "favorite"]);
+      }
+    }
   });
 });

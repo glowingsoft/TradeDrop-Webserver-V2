@@ -1618,7 +1618,7 @@ module.exports = {
       get: {
         tags: ["Messaging"],
         security: [{ bearerAuth: [] }],
-        responses: { 200: { description: "Caller-visible conversations; project chats include their linked dropId or null" } },
+        responses: { 200: { description: "Caller-visible conversations; project chats include dropId and otherUser {_id, name, profileIcon}, or null when unavailable" } },
       },
     },
     "/conversations/chat": {
@@ -1627,7 +1627,7 @@ module.exports = {
         security: [{ bearerAuth: [] }],
         summary: "List the caller's conversations by category",
         description:
-          "Includes joined rooms and active trade chats only. Circle chats require active Circle membership; public rooms the caller has not joined and completed or cancelled trade chats are excluded. The default inbox state includes default and favorite chats.",
+          "All includes direct, joined Circle and active collaboration chats. Collaborations lists active trade chats. Circle chats require active Circle membership; public rooms the caller has not joined and completed or cancelled trade chats are excluded. The default inbox state includes default and favorite chats.",
         parameters: [
           { in: "query", name: "category", schema: { type: "string", enum: ["all", "people", "circles", "collaborations"], default: "all" } },
           { in: "query", name: "page", schema: { type: "integer", minimum: 1 } },
@@ -1636,7 +1636,7 @@ module.exports = {
           { in: "query", name: "chatState", schema: { type: "string", enum: ["inbox", "favorite", "archived", "blocked"] } },
         ],
         responses: {
-          200: { description: "Paginated conversations in the same format as the existing chat list; project chats include their linked dropId" },
+          200: { description: "Paginated conversations; project chats include dropId and otherUser {_id, name, profileIcon}, or null when unavailable" },
           400: { description: "Invalid category" },
         },
       },
@@ -1659,7 +1659,7 @@ module.exports = {
         tags: ["Messaging"],
         security: [{ bearerAuth: [] }],
         description:
-          "Recipients' unread counts increase even when they are connected to the chat socket. The chatUpdated event contains each recipient's unreadCount; fetching the conversation's messages marks them read.",
+          "Recipients' unread counts increase even when they are connected to the chat socket. The chatUpdated event contains each recipient's unreadCount; fetching the conversation's messages marks them read. Existing collaboration conversations may be sent with conversationType direct or project and their conversationId; trade-participant access rules still apply.",
         requestBody: {
           required: true,
           content: {

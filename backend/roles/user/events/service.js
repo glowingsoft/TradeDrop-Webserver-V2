@@ -534,8 +534,20 @@ async function getEvent(eventId, userId = null, isAdmin = false) {
 async function listEvents(req, { excludeUserIds = [] } = {}) {
   const { page, limit } = parsePaginationParams(req);
   const { lat, lng, radius, anywhere, keyword, status } = req.query;
-  const match = { status: status || "published", date: { $gte: new Date() } };
-  if (keyword?.trim()) match.name = { $regex: escapeRegex(keyword.trim()), $options: "i" };
+
+  const match = {
+    status: status || "published",
+    date: { $gte: new Date() },
+  };
+
+  if (keyword?.trim()) {
+    match.name = {
+      $regex: escapeRegex(keyword.trim()),
+      $options: "i",
+    };
+  }
+
+  // Validate location
   if (
     anywhere !== "true" &&
     ((lat === undefined) !== (lng === undefined) ||
@@ -543,15 +555,16 @@ async function listEvents(req, { excludeUserIds = [] } = {}) {
   ) {
     throw httpError(400, "event_location_invalid");
   }
+
   if (radius !== undefined && (!Number.isFinite(Number(radius)) || Number(radius) <= 0)) {
     throw httpError(400, "event_radius_invalid");
   }
+
   const near = anywhere !== "true" && lat !== undefined && lng !== undefined;
+
   if (
     near &&
-    (String(lat).trim() === "" ||
-      String(lng).trim() === "" ||
-      !Number.isFinite(Number(lat)) ||
+    (!Number.isFinite(Number(lat)) ||
       !Number.isFinite(Number(lng)) ||
       Number(lat) < -90 ||
       Number(lat) > 90 ||
@@ -560,65 +573,115 @@ async function listEvents(req, { excludeUserIds = [] } = {}) {
   ) {
     throw httpError(400, "event_location_invalid");
   }
-  const pipeline = near
-    ? [
-        {
-          $geoNear: {
-            near: { type: "Point", coordinates: [Number(lng), Number(lat)] },
-            key: "location",
-            distanceField: "distanceMeters",
-            maxDistance: Math.max(1, Number(radius) || 50) * 1000,
-            spherical: true,
-            query: match,
-          },
-        },
-      ]
-    : [{ $match: match }];
+
+  // Get viewer memberships
   const viewerMemberships = req.user?._id
-    ? await CircleMember.find({ userId: req.user._id, status: "active" }).select("circleId role").lean()
+    ? await CircleMember.find({
+        userId: req.user._id,
+        status: "active",
+      })
+        .select("circleId role")
+        .lean()
     : [];
+
   const memberCircleIds = viewerMemberships.map((member) => member.circleId);
+
   const viewerRoles = new Map(viewerMemberships.map((member) => [String(member.circleId), member.role]));
-  const [result] = await Event.aggregate([
-    ...pipeline,
-    {
-      $lookup: {
-        from: "circles",
-        localField: "circleId",
-        foreignField: "_id",
-        as: "circle",
-      },
-    },
-    { $set: { circle: { $first: "$circle" } } },
-    ...(excludeUserIds.length ? [{ $match: { "circle.creatorId": { $nin: excludeUserIds } } }] : []),
-    {
-      $match: {
-        "circle.deletedAt": null,
-        ...(isAdminUser(req.user)
-          ? {}
-          : memberCircleIds.length
-            ? {
-                $or: [
-                  { audience: "public", "circle.privacy": { $in: ["open", "approval"] } },
-                  { circleId: { $in: memberCircleIds } },
-                ],
-              }
-            : { audience: "public", "circle.privacy": { $in: ["open", "approval"] } }),
-      },
-    },
+
+  // Build aggregation pipeline
+  const pipeline = [
+    ...(near
+      ? [
+          {
+            $geoNear: {
+              near: {
+                type: "Point",
+                coordinates: [Number(lng), Number(lat)],
+              },
+              key: "location",
+              distanceField: "distanceMeters",
+              maxDistance: (Number(radius) || 50) * 1000,
+              spherical: true,
+              query: match,
+            },
+          },
+        ]
+      : [{ $match: match }]),
+
+    // Lookup circle
+    // {
+    //   $lookup: {
+    //     from: "circles",
+    //     localField: "circleId",
+    //     foreignField: "_id",
+    //     as: "circle",
+    //   },
+    // },
+
+    // {
+    //   $set: {
+    //     circle: { $first: "$circle" },
+    //   },
+    // },
+
+    // // Remove deleted or missing circles
+    // {
+    //   $match: {
+    //     "circle._id": { $exists: true },
+    //     "circle.deletedAt": null,
+    //   },
+    // },
+
+    // Apply visibility rules
+    // ...(!isAdminUser(req.user)
+    //   ? [
+    //       {
+    //         $match: {
+    //           $or: [
+    //             {
+    //               audience: "public",
+    //               "circle.privacy": {
+    //                 $in: ["open", "approval"],
+    //               },
+    //             },
+    //             ...(memberCircleIds.length
+    //               ? [
+    //                   {
+    //                     circleId: {
+    //                       $in: memberCircleIds,
+    //                     },
+    //                   },
+    //                 ]
+    //               : []),
+    //           ],
+    //         },
+    //       },
+    //     ]
+    //   : []),
+
+    // Pagination and total count
     {
       $facet: {
         items: [{ $sort: { date: 1 } }, { $skip: (page - 1) * limit }, { $limit: limit }],
         total: [{ $count: "count" }],
       },
     },
-  ]);
+  ];
+
+  const [result] = await Event.aggregate(pipeline);
+
   const data = (result?.items || []).map((item) => ({
-    ...eventView(item, { viewerId: req.user?._id }),
+    ...eventView(item, {
+      viewerId: req.user?._id,
+    }),
     distanceMeters: item.distanceMeters ?? null,
     viewerRole: viewerRoles.get(String(item.circleId)) || "none",
   }));
-  return { data, meta: generateMeta(page, limit, result?.total?.[0]?.count || 0) };
+
+  return {
+    data,
+    meta: generateMeta(page, limit, result?.total?.[0]?.count || 0),
+  };
 }
 
 const EVENT_LIST_STATUSES = ["upcoming", "cancelled"];
