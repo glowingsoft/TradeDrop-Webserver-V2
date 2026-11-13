@@ -609,55 +609,55 @@ async function listEvents(req, { excludeUserIds = [] } = {}) {
       : [{ $match: match }]),
 
     // Lookup circle
-    // {
-    //   $lookup: {
-    //     from: "circles",
-    //     localField: "circleId",
-    //     foreignField: "_id",
-    //     as: "circle",
-    //   },
-    // },
+    {
+      $lookup: {
+        from: "circles",
+        localField: "circleId",
+        foreignField: "_id",
+        as: "circle",
+      },
+    },
 
-    // {
-    //   $set: {
-    //     circle: { $first: "$circle" },
-    //   },
-    // },
+    {
+      $set: {
+        circle: { $first: "$circle" },
+      },
+    },
 
-    // // Remove deleted or missing circles
-    // {
-    //   $match: {
-    //     "circle._id": { $exists: true },
-    //     "circle.deletedAt": null,
-    //   },
-    // },
+    // Remove deleted or missing circles
+    {
+      $match: {
+        "circle._id": { $exists: true },
+        "circle.deletedAt": null,
+      },
+    },
 
     // Apply visibility rules
-    // ...(!isAdminUser(req.user)
-    //   ? [
-    //       {
-    //         $match: {
-    //           $or: [
-    //             {
-    //               audience: "public",
-    //               "circle.privacy": {
-    //                 $in: ["open", "approval"],
-    //               },
-    //             },
-    //             ...(memberCircleIds.length
-    //               ? [
-    //                   {
-    //                     circleId: {
-    //                       $in: memberCircleIds,
-    //                     },
-    //                   },
-    //                 ]
-    //               : []),
-    //           ],
-    //         },
-    //       },
-    //     ]
-    //   : []),
+    ...(!isAdminUser(req.user)
+      ? [
+          {
+            $match: {
+              $or: [
+                {
+                  audience: "public",
+                  "circle.privacy": {
+                    $in: ["open", "approval"],
+                  },
+                },
+                ...(memberCircleIds.length
+                  ? [
+                      {
+                        circleId: {
+                          $in: memberCircleIds,
+                        },
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          },
+        ]
+      : []),
 
     // Pagination and total count
     {
