@@ -34,6 +34,7 @@ module.exports = {
     { name: "Circles", description: "Circle membership, discussions, and polls" },
     { name: "Events", description: "Circle events and embedded RSVPs" },
     { name: "Messaging", description: "Participant-authorized personal, Circle, and project chats" },
+    { name: "Notifications", description: "User notification inbox" },
     { name: "Activity", description: "Received, sent, and work activity" },
     { name: "Reports", description: "User reports and staff moderation" },
   ],
@@ -915,7 +916,7 @@ module.exports = {
         tags: ["Radar"],
         summary: "Radar person details, connection state and public open Drops",
         description:
-          "Returns a visible radar profile with connectionCount, connectionStatus, requestSent and requestId. " +
+          "Returns a visible radar profile with isFavorite (whether the caller favorited this person), connectionCount, connectionStatus, requestSent and requestId. " +
           "connectionId contains the active connection ID, or the outgoing request ID when a request is pending. " +
           "latestConnections contains up to two active connection profiles visible to the viewer, ordered by most recently updated. " +
           "mutualCollaborationCount counts active and completed collaborations between the viewer and the person. " +
@@ -945,6 +946,7 @@ module.exports = {
                         name: { type: "string" },
                         handle: { type: "string" },
                         profileIcon: { type: "string" },
+                        isFavorite: { type: "boolean" },
                         hasConnection: { type: "boolean" },
                         connectionId: { type: "string", nullable: true },
                         requestId: { type: "string", nullable: true },
@@ -1219,6 +1221,8 @@ module.exports = {
       get: {
         tags: ["Circles"],
         summary: "Discover nearby Open and Approval Circles",
+        description:
+          "Each result includes viewerRole: organizer or member for an active membership, otherwise none (including anonymous viewers and pending invitations or requests).",
         parameters: [
           { in: "query", name: "page", schema: { type: "integer", minimum: 1 } },
           { in: "query", name: "limit", schema: { type: "integer", minimum: 1, maximum: 100 } },
@@ -1447,6 +1451,8 @@ module.exports = {
     "/events": {
       get: {
         tags: ["Events"],
+        description:
+          "Each result includes viewerRole: organizer or member for an active membership in the Event's Circle, otherwise none.",
         responses: { 200: { description: "Published Events visible under Circle audience rules" } },
       },
       post: {
@@ -1581,11 +1587,58 @@ module.exports = {
         },
       },
     },
+    "/notifications": {
+      get: {
+        tags: ["Notifications"],
+        security: [{ bearerAuth: [] }],
+        summary: "List the caller's notifications",
+        description:
+          "Events includes event and event_suggestion. Requests includes connection_request, circle_request, circle_invitation and tap_in. Event RSVP requests have type event and appear under Events.",
+        parameters: [
+          { in: "query", name: "filter", schema: { type: "string", enum: ["all", "events", "requests"], default: "all" } },
+          { in: "query", name: "keyword", description: "Matches the notification type", schema: { type: "string" } },
+          { in: "query", name: "page", schema: { type: "integer", minimum: 1 } },
+          { in: "query", name: "limit", schema: { type: "integer", minimum: 1, maximum: 100 } },
+        ],
+        responses: {
+          200: { description: "Paginated notifications" },
+          400: { description: "Invalid filter" },
+        },
+      },
+    },
+    "/notifications/read-all": {
+      put: {
+        tags: ["Notifications"],
+        security: [{ bearerAuth: [] }],
+        summary: "Mark all the caller's unread notifications as read",
+        responses: { 200: { description: "data.modifiedCount is the number of notifications updated; zero if none were unread" } },
+      },
+    },
     "/conversations": {
       get: {
         tags: ["Messaging"],
         security: [{ bearerAuth: [] }],
-        responses: { 200: { description: "Caller-visible conversations" } },
+        responses: { 200: { description: "Caller-visible conversations; project chats include their linked dropId or null" } },
+      },
+    },
+    "/conversations/chat": {
+      get: {
+        tags: ["Messaging"],
+        security: [{ bearerAuth: [] }],
+        summary: "List the caller's conversations by category",
+        description:
+          "Includes joined rooms and active trade chats only. Circle chats require active Circle membership; public rooms the caller has not joined and completed or cancelled trade chats are excluded. The default inbox state includes default and favorite chats.",
+        parameters: [
+          { in: "query", name: "category", schema: { type: "string", enum: ["all", "people", "circles", "collaborations"], default: "all" } },
+          { in: "query", name: "page", schema: { type: "integer", minimum: 1 } },
+          { in: "query", name: "limit", schema: { type: "integer", minimum: 1, maximum: 100 } },
+          { in: "query", name: "keyword", schema: { type: "string" } },
+          { in: "query", name: "chatState", schema: { type: "string", enum: ["inbox", "favorite", "archived", "blocked"] } },
+        ],
+        responses: {
+          200: { description: "Paginated conversations in the same format as the existing chat list; project chats include their linked dropId" },
+          400: { description: "Invalid category" },
+        },
       },
     },
     "/conversations/messages": {
@@ -1605,6 +1658,8 @@ module.exports = {
       post: {
         tags: ["Messaging"],
         security: [{ bearerAuth: [] }],
+        description:
+          "Recipients' unread counts increase even when they are connected to the chat socket. The chatUpdated event contains each recipient's unreadCount; fetching the conversation's messages marks them read.",
         requestBody: {
           required: true,
           content: {

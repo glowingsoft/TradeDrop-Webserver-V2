@@ -17,6 +17,7 @@ const Circle = require("../../backend/models/Circle");
 const Trade = require("../../backend/models/Trade");
 const { Drop } = require("../../backend/models/Drop");
 const { getFullImageUrl } = require("../../backend/helperUtils/imageHelper");
+const { Favorites } = require("../../backend/commonModules/favorites/Favorite");
 const router = require("../../backend/roles/user/radar/radarRoutes");
 
 describe("GET /radar/people/:id", () => {
@@ -50,6 +51,7 @@ describe("GET /radar/people/:id", () => {
       [Circle, ["find"]],
       [Trade, ["find", "countDocuments"]],
       [Drop, ["find", "countDocuments"]],
+      [Favorites, ["exists"]],
     ]) {
       for (const method of methods) original[`${model.modelName}.${method}`] = model[method];
     }
@@ -63,6 +65,7 @@ describe("GET /radar/people/:id", () => {
       request: null,
       drops: [{ _id: dropId, ownerId: userId, status: "open", visibility: "public", referenceImages: [] }],
       total: 1,
+      favorite: null,
     };
     User.aggregate = async (pipeline) => {
       state.userMatch = pipeline[0].$match;
@@ -108,6 +111,10 @@ describe("GET /radar/people/:id", () => {
       state.countFilter = filter;
       return state.total;
     };
+    Favorites.exists = async (filter) => {
+      state.favoriteFilter = filter;
+      return state.favorite;
+    };
     app = express();
     app.use((req, res, next) => {
       req.user = { _id: viewerId };
@@ -126,6 +133,7 @@ describe("GET /radar/people/:id", () => {
       [Circle, ["find"]],
       [Trade, ["find", "countDocuments"]],
       [Drop, ["find", "countDocuments"]],
+      [Favorites, ["exists"]],
     ]) {
       for (const method of methods) model[method] = original[`${model.modelName}.${method}`];
     }
@@ -136,6 +144,7 @@ describe("GET /radar/people/:id", () => {
     const response = await supertest(app).get(`/radar/people/${userId}?page=2&limit=1`).expect(200);
     const person = response.body.data;
     assert.equal(person.profileIcon, getFullImageUrl("avatar.png"));
+    assert.equal(person.isFavorite, false);
     assert.equal(person.lat, 1.235);
     assert.equal(person.hasConnection, true);
     assert.equal(person.connectionId, String(connectionId));
@@ -162,6 +171,14 @@ describe("GET /radar/people/:id", () => {
     assert.equal(state.circleFilter.privacy, undefined);
     assert.equal(state.userMatch.radarVisible.$ne, false);
     assert.equal(state.userMatch.hideFromSearch.$ne, true);
+  });
+
+  it("reports whether the viewer has favorited this person", async () => {
+    state.favorite = { _id: new mongoose.Types.ObjectId() };
+    const { body } = await supertest(app).get(`/radar/people/${userId}`).expect(200);
+    assert.equal(body.data.isFavorite, true);
+    assert.equal(String(state.favoriteFilter.user), String(viewerId));
+    assert.equal(String(state.favoriteFilter.target), String(userId));
   });
 
   it("returns two latest visible connection profiles", async () => {
@@ -237,6 +254,7 @@ describe("GET /radar/people/:id", () => {
     state.blocked = { blockedBy: viewerId, blockedUser: userId };
     await supertest(app).get(`/radar/people/${userId}`).expect(404);
     assert.equal(state.blockFilter.$or.length, 2);
+    assert.equal(state.favoriteFilter, undefined);
     state.blocked = null;
     state.users = [];
     await supertest(app).get(`/radar/people/${userId}`).expect(404);
@@ -253,6 +271,11 @@ describe("GET /radar/people/:id", () => {
 
   it("returns an error when the database query fails", async () => {
     User.aggregate = async () => { throw new Error("database unavailable"); };
+    await supertest(app).get(`/radar/people/${userId}`).expect(500);
+  });
+
+  it("returns an error when the favorite lookup fails", async () => {
+    Favorites.exists = async () => { throw new Error("database unavailable"); };
     await supertest(app).get(`/radar/people/${userId}`).expect(500);
   });
 });

@@ -627,7 +627,19 @@ async function listCircles(req, { excludeUserIds = [] } = {}) {
     },
   ]);
   const circles = result?.items || [];
-  const voteSummaries = await pollVoteSummaries(circles);
+  const [voteSummaries, viewerMemberships] = await Promise.all([
+    pollVoteSummaries(circles),
+    req.user?._id && circles.length
+      ? CircleMember.find({
+          userId: req.user._id,
+          circleId: { $in: circles.map((circle) => circle._id) },
+          status: "active",
+        })
+          .select("circleId role")
+          .lean()
+      : [],
+  ]);
+  const viewerRoles = new Map(viewerMemberships.map((member) => [String(member.circleId), member.role]));
   const data = circles.map((circle) => {
     const { memberCount, pendingRequestCount, joinedInvitationCount, pendingInvitationCount, ...view } = circleView(
       circle,
@@ -638,6 +650,7 @@ async function listCircles(req, { excludeUserIds = [] } = {}) {
       ...view,
       coverImage: circle.coverImage ? getFullImageUrl(circle.coverImage) : "",
       distanceMeters: circle.distanceMeters ?? null,
+      viewerRole: viewerRoles.get(String(circle._id)) || "none",
     };
   });
   return { data, meta: generateMeta(page, limit, result?.total?.[0]?.count || 0) };

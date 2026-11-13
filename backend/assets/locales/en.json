@@ -57,6 +57,8 @@
   "notifications_fetched_success": "Notifications fetched successfully",
   "notifications_fetch_error": "Error fetching notifications",
   "notification_marked_read_success": "Notification marked as read successfully",
+  "notifications_marked_read_success": "Notifications marked as read successfully",
+  "notification_filter_invalid": "Invalid notification filter",
   "notification_not_found": "Notification not found",
   "notification_mark_read_error": "Error marking notification as read",
   "user_not_found": "No account found with the provided email address.",

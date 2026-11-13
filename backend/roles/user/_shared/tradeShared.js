@@ -211,6 +211,8 @@ function userBrief(u) {
     name: u.name || "",
     handle: u.handle || "",
     profileIcon: u.profileIcon ? getFullImageUrl(u.profileIcon) : "",
+    areaLabel: u.areaLabel || "",
+    crafts: (u.crafts || []).map((c) => ({ _id: idStr(c._id), name: c.name || "" })),
   };
 }
 
@@ -218,7 +220,8 @@ async function usersById(ids) {
   const unique = [...new Set(ids.filter(Boolean).map(String))];
   if (!unique.length) return new Map();
   const users = await User.find({ _id: { $in: unique } })
-    .select("name handle profileIcon")
+    .select("name handle profileIcon areaLabel crafts")
+    .populate("crafts", "name")
     .lean();
   return new Map(users.map((u) => [String(u._id), u]));
 }

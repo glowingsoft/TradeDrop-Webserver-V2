@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Circle = require("@models/Circle");
+const CircleMember = require("@models/CircleMember");
 const Event = require("@models/Event");
 const UserReport = require("@models/UserReport");
 const BlockedUser = require("@models/BlockedUser");
@@ -573,7 +574,11 @@ async function listEvents(req, { excludeUserIds = [] } = {}) {
         },
       ]
     : [{ $match: match }];
-  const memberCircleIds = req.user?._id ? await circleIdsFor(req.user._id) : [];
+  const viewerMemberships = req.user?._id
+    ? await CircleMember.find({ userId: req.user._id, status: "active" }).select("circleId role").lean()
+    : [];
+  const memberCircleIds = viewerMemberships.map((member) => member.circleId);
+  const viewerRoles = new Map(viewerMemberships.map((member) => [String(member.circleId), member.role]));
   const [result] = await Event.aggregate([
     ...pipeline,
     {
@@ -611,6 +616,7 @@ async function listEvents(req, { excludeUserIds = [] } = {}) {
   const data = (result?.items || []).map((item) => ({
     ...eventView(item, { viewerId: req.user?._id }),
     distanceMeters: item.distanceMeters ?? null,
+    viewerRole: viewerRoles.get(String(item.circleId)) || "none",
   }));
   return { data, meta: generateMeta(page, limit, result?.total?.[0]?.count || 0) };
 }

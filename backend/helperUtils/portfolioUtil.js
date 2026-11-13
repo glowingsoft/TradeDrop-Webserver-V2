@@ -7,7 +7,7 @@ function portfolioImageUrls(item) {
   return item.imageUrl ? [item.imageUrl] : [];
 }
 
-function portfolioItemView(item, { fullUrls = false } = {}) {
+function portfolioItemView(item, { fullUrls = true } = {}) {
   const imageUrls = portfolioImageUrls(item).map((url) => (fullUrls ? getFullImageUrl(url) : url));
   const { imageUrl, tags, ...rest } = item;
   return { ...rest, imageUrls };

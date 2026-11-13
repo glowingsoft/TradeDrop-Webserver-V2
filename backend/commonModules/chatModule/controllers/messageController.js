@@ -15,7 +15,6 @@ const { NotificationTypes } = require("../../../models/Notifications");
 
 const {
   getChatNamespace,
-  getConnectedUserIds,
   emitMessageToUsers,
   emitChatUpdatedToUser,
 } = require("../sockets/chatEventEmitter");
@@ -30,7 +29,8 @@ const { isBlockedBetween, isActivelyConnected } = require("../../../helperUtils/
 
 function activeConversationParticipant(conversation, userId) {
   return conversation.participants?.some(
-    (participant) => String(participant.user?._id || participant.user) === String(userId) && participant.isActive !== false,
+    (participant) =>
+      String(participant.user?._id || participant.user) === String(userId) && participant.isActive !== false,
   );
 }
 
@@ -66,12 +66,35 @@ async function canAccessConversation(conversation, userId, { send = false } = {}
   return true;
 }
 
-const fetchChats = async (req, res) => {
+const fetchChatList = async (req, res, { unified = false } = {}) => {
   const { _id: userId, timezone } = req.user;
   const { page, limit } = parsePaginationParams(req);
-  const { keyword, chatState } = req.query;
+  const { keyword, chatState, category = "all" } = req.query;
+
+  if (unified && !["all", "people", "circles", "collaborations"].includes(category)) {
+    return sendResponse({ res, statusCode: 400, translationKey: "invalid_chat_category" });
+  }
 
   try {
+    const currentUserId = unified ? new mongoose.Types.ObjectId(userId) : userId;
+    const tradeViewerId = new mongoose.Types.ObjectId(userId);
+    const tradeLookup = (activeOnly) => ({
+      $lookup: {
+        from: Trade.collection.name,
+        let: { tradeId: "$tradeId" },
+        pipeline: [
+          {
+            $match: {
+              ...(activeOnly ? { status: "active" } : {}),
+              $or: [{ requesterId: tradeViewerId }, { responderId: tradeViewerId }],
+              $expr: { $eq: ["$_id", "$$tradeId"] },
+            },
+          },
+          { $project: { _id: 1, dropId: 1 } },
+        ],
+        as: "_chatTrade",
+      },
+    });
     const chatStateMap = {
       inbox: ["default", "favorite"],
       favorite: ["favorite"],
@@ -85,12 +108,17 @@ const fetchChats = async (req, res) => {
       isDeleted: { $ne: true },
       participants: {
         $elemMatch: {
-          user: userId,
+          user: currentUserId,
           isActive: true,
           chatState: { $in: allowedStates },
         },
       },
     };
+
+    const categoryTypes = { people: "direct", circles: "group", collaborations: "project" };
+    if (unified) {
+      baseMatch.type = categoryTypes[category] || { $in: ["direct", "group", "project"] };
+    }
 
     const keywordFilter = keyword?.trim()
       ? {
@@ -102,7 +130,7 @@ const fetchChats = async (req, res) => {
                 {
                   userDetails: {
                     $elemMatch: {
-                      _id: { $ne: userId },
+                      _id: { $ne: currentUserId },
                       name: { $regex: keyword, $options: "i" },
                     },
                   },
@@ -116,6 +144,53 @@ const fetchChats = async (req, res) => {
     const sharedPipeline = [
       { $match: baseMatch },
 
+      ...(unified && ["all", "collaborations"].includes(category)
+        ? [
+            tradeLookup(true),
+            { $match: { $or: [{ type: { $ne: "project" } }, { "_chatTrade.0": { $exists: true } }] } },
+          ]
+        : []),
+      ...(unified && ["all", "circles"].includes(category)
+        ? [
+            {
+              $lookup: {
+                from: Circle.collection.name,
+                let: { circleId: "$circleId" },
+                pipeline: [
+                  { $match: { deletedAt: null, $expr: { $eq: ["$_id", "$$circleId"] } } },
+                  { $project: { _id: 1 } },
+                ],
+                as: "_activeCircle",
+              },
+            },
+            {
+              $lookup: {
+                from: CircleMember.collection.name,
+                let: { circleId: "$circleId" },
+                pipeline: [
+                  {
+                    $match: {
+                      userId: currentUserId,
+                      status: "active",
+                      $expr: { $eq: ["$circleId", "$$circleId"] },
+                    },
+                  },
+                  { $project: { _id: 1 } },
+                ],
+                as: "_circleMembership",
+              },
+            },
+            {
+              $match: {
+                $or: [
+                  { type: { $ne: "group" } },
+                  { circleId: null },
+                  { "_activeCircle.0": { $exists: true }, "_circleMembership.0": { $exists: true } },
+                ],
+              },
+            },
+          ]
+        : []),
       {
         $addFields: {
           currentParticipant: {
@@ -174,9 +249,10 @@ const fetchChats = async (req, res) => {
     const paginatedPipeline = [
       ...sharedPipeline,
       ...(keywordFilter ? [{ $match: keywordFilter }] : []),
-      { $sort: { updatedAt: -1 } },
+      { $sort: unified ? { updatedAt: -1, _id: -1 } : { updatedAt: -1 } },
       { $skip: (page - 1) * limit },
       { $limit: limit },
+      ...(!unified ? [tradeLookup(false)] : []),
     ];
 
     // Pipeline for total count
@@ -228,6 +304,7 @@ const fetchChats = async (req, res) => {
       return {
         conversationId: conv._id,
         type: conv.type,
+        ...(conv.type === "project" ? { dropId: conv._chatTrade?.[0]?.dropId ?? null } : {}),
         objectId,
         chatName,
         chatIcon: chatIcon ? `${process.env.S3_BASE_URL}${chatIcon}` : null,
@@ -263,6 +340,9 @@ const fetchChats = async (req, res) => {
     });
   }
 };
+
+const fetchChats = (req, res) => fetchChatList(req, res);
+const fetchUnifiedChats = (req, res) => fetchChatList(req, res, { unified: true });
 
 // Fetch messages (pagination)
 const fetchMessages = async (req, res) => {
@@ -325,9 +405,7 @@ const fetchMessages = async (req, res) => {
 
     const formattedMessages = messages.map((msg) => {
       const localDate = convertUtcToTimezone(msg.createdAt, timezone);
-      const isRead = msg.readBy.some(
-        (entry) => String(entry.userId?._id || entry.userId || entry) === String(userId),
-      );
+      const isRead = msg.readBy.some((entry) => String(entry.userId?._id || entry.userId || entry) === String(userId));
 
       return {
         ...msg,
@@ -600,22 +678,6 @@ const sendMessage = async (req, res) => {
           .filter((p) => p.user.toString() !== senderId.toString()) // Exclude sender
           .map((p) => p.user.toString()); // Get an array of recipient IDs for group chat
 
-        // Determine online recipients from Redis-synced room presence.
-        const connectedRecipientIds = await getConnectedUserIds(chatNamespace, recipientIds);
-
-        // Reset unread counts for all connected recipients in one update
-        if (connectedRecipientIds.length > 0) {
-          connectedRecipientIds.forEach((id) => {
-            conversation.unreadCounts.set(id, 0);
-          });
-        }
-
-        // Always reset sender's unread count
-        conversation.unreadCounts.set(senderId.toString(), 0);
-
-        // Save conversation once after all updates (in background)
-        conversation.save().catch(() => {});
-
         emitMessageToUsers({
           ioOrNamespace: chatNamespace,
           recipientIds,
@@ -645,7 +707,6 @@ const sendMessage = async (req, res) => {
           });
         });
         const user = await User.findById(senderId).select("name -_id").lean();
-        console.log("user", user);
 
         // Send notifications to all group participants (excluding sender)
         if (conversation.type === "group") {
@@ -1110,6 +1171,7 @@ const fetchAllRooms = async (req, res) => {
 
 module.exports = {
   fetchChats,
+  fetchUnifiedChats,
   fetchMessages,
   sendMessage,
   deleteChat,

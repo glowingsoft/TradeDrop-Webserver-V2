@@ -19,7 +19,7 @@ async function getConnectedUserIds(chatNamespace, userIds = []) {
       if (sockets.size > 0) {
         connectedIds.push(String(userId));
       }
-    })
+    }),
   );
 
   return connectedIds;
@@ -28,7 +28,6 @@ async function getConnectedUserIds(chatNamespace, userIds = []) {
 function emitMessageToUsers({ ioOrNamespace, recipientIds = [], message }) {
   const chatNamespace = getChatNamespace(ioOrNamespace);
   if (!chatNamespace) return;
-
   recipientIds.forEach((recipientId) => {
     chatNamespace.to(getUserRoom(recipientId)).emit("receiveMessage", message);
   });

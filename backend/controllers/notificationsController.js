@@ -9,15 +9,30 @@ const { sendUserNotifications } = require("./communicationController");
 const { NotificationTypes } = require("../models/Notifications");
 const { NOTIFICATION_ACTIVITIES } = require("@models/Activity");
 
+const notificationFilters = {
+  events: [NotificationTypes.EVENT, "event_suggestion"],
+  requests: [NotificationTypes.CONNECTION_REQUEST, "circle_request", NotificationTypes.CIRCLE_INVITATION, NotificationTypes.TAP_IN],
+};
+
 const getNotifications = async (req, res) => {
   const { page, limit } = parsePaginationParams(req);
   const keyword = req.query.keyword || null;
+  const filter = req.query.filter === undefined ? "all" : req.query.filter;
   const userId = req.user._id;
   const timezone = req.user.timezone || "UTC";
 
+  if (!["all", "events", "requests"].includes(filter)) {
+    return sendResponse({ res, statusCode: 400, translationKey: "notification_filter_invalid" });
+  }
+
   try {
     const query = { receiverId: userId };
-    if (keyword) query.type = { $regex: keyword, $options: "i" };
+    if (filter !== "all" || keyword) {
+      query.type = {
+        ...(filter !== "all" ? { $in: notificationFilters[filter] } : {}),
+        ...(keyword ? { $regex: keyword, $options: "i" } : {}),
+      };
+    }
 
     const [notifications, total] = await Promise.all([
       NotificationExp.find(query)
@@ -68,6 +83,28 @@ const getNotifications = async (req, res) => {
       res,
       statusCode: 500,
       translationKey: "notifications_fetch_error",
+      error,
+    });
+  }
+};
+
+const readAllNotifications = async (req, res) => {
+  try {
+    const result = await NotificationExp.updateMany(
+      { receiverId: req.user._id, isRead: { $ne: true } },
+      { $set: { isRead: true } },
+    );
+    return sendResponse({
+      res,
+      statusCode: 200,
+      translationKey: "notifications_marked_read_success",
+      data: { modifiedCount: result.modifiedCount },
+    });
+  } catch (error) {
+    return sendResponse({
+      res,
+      statusCode: 500,
+      translationKey: "notification_mark_read_error",
       error,
     });
   }
@@ -206,6 +243,7 @@ const sendNotificationBySegments = async (req, res) => {
 
 module.exports = {
   getNotifications,
+  readAllNotifications,
   readNotification,
   getAudienceSegments,
   sendNotificationBySegments,

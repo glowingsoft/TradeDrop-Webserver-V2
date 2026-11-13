@@ -5,6 +5,7 @@ const createRateLimiter = require("../helperUtils/rateLimiter");
 
 const {
   getNotifications,
+  readAllNotifications,
   readNotification,
   getAudienceSegments,
   sendNotificationBySegments,
@@ -18,7 +19,8 @@ router.get("/", notificationsRateLimiter, auth, getNotifications);
 router.get("/segments", notificationsRateLimiter, auth, roleMiddleware(["admin"]), getAudienceSegments);
 router.post("/send-by-segments", notificationsRateLimiter, auth, roleMiddleware(["admin"]), sendNotificationBySegments);
 
-// Route to mark a notification as read by ID
+// Routes to mark notifications as read
+router.put("/read-all", notificationsRateLimiter, auth, readAllNotifications);
 router.put("/:id/read", notificationsRateLimiter, auth, readNotification);
 
 module.exports = router;
